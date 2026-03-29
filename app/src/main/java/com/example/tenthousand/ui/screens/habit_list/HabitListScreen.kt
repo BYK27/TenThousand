@@ -1,16 +1,21 @@
 package com.example.tenthousand.ui.screens.habit_list
 
 import HabitEntity
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tenthousand.data.local.dao.HabitDao
@@ -27,38 +32,66 @@ fun HabitListScreen(
     val state by viewModel.uiState.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
-    // State for rename/delete dialog
     var selectedHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var showOptionsDialog by remember { mutableStateOf(false) }
     var renameInput by remember { mutableStateOf("") }
 
+    // Calculate total time across all habits
+    val totalSecondsAllHabits = state.habits.sumOf { it.totalSeconds }
+
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Habit")
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            items(state.habits) { habit ->
-                HabitRow(
-                    habit = habit,
-                    onClick = { onOpenHabit(habit.id) },
-                    onLongClick = {
-                        selectedHabit = habit
-                        renameInput = habit.name
-                        showOptionsDialog = true
-                    }
-                )
+            Text(
+                text = "My Habits",
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Total Focus Time: ${formatSleekTotal(totalSecondsAllHabits)}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(state.habits) { habit ->
+                    HabitRow(
+                        habit = habit,
+                        onClick = { onOpenHabit(habit.id) },
+                        onLongClick = {
+                            selectedHabit = habit
+                            renameInput = habit.name
+                            showOptionsDialog = true
+                        }
+                    )
+                }
             }
         }
     }
 
-    // Add Habit Dialog
     if (showAddDialog) {
         AddHabitDialog(
             onAdd = { name ->
@@ -69,108 +102,101 @@ fun HabitListScreen(
         )
     }
 
-    // Rename/Delete Dialog
     if (showOptionsDialog && selectedHabit != null) {
         AlertDialog(
             onDismissRequest = { showOptionsDialog = false },
             title = { Text("Edit Habit") },
             text = {
-                TextField(
+                OutlinedTextField(
                     value = renameInput,
                     onValueChange = { renameInput = it },
-                    label = { Text("Habit Name") }
+                    label = { Text("Habit Name") },
+                    singleLine = true
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                Button(onClick = {
                     val newName = renameInput.trim()
                     if (newName.isNotEmpty()) {
                         viewModel.renameHabit(selectedHabit!!.id, newName)
                     }
                     showOptionsDialog = false
-                }) {
-                    Text("Rename")
-                }
+                }) { Text("Save") }
             },
             dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        viewModel.deleteHabit(selectedHabit!!)
-                        showOptionsDialog = false
-                    }) {
-                        Text("Delete")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { showOptionsDialog = false }) {
-                        Text("Cancel")
-                    }
-                }
+                TextButton(onClick = {
+                    viewModel.deleteHabit(selectedHabit!!)
+                    showOptionsDialog = false
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             }
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HabitRow(
     habit: HabitEntity,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = habit.name,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = formatTotal(habit.totalSeconds),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
+        Text(
+            text = habit.name,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = formatSleekTotal(habit.totalSeconds),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
+fun formatSleekTotal(seconds: Long): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    return if (h > 0) "${h}h : ${m}m" else "${m}m"
+}
+
+fun formatSleekTimer(seconds: Long): String {
+    val m = seconds / 60
+    val s = seconds % 60
+    return String.format("%02d:%02d", m, s)
+}
 
 @Composable
 fun AddHabitDialog(onAdd: (String) -> Unit, onCancel: () -> Unit) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onCancel,
+        title = { Text("New Habit") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text("e.g. Unreal Engine") },
+                singleLine = true
+            )
+        },
         confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onAdd(name.trim()) }) { Text("Add") }
+            Button(onClick = { if (name.isNotBlank()) onAdd(name.trim()) }) { Text("Add") }
         },
         dismissButton = {
             TextButton(onClick = onCancel) { Text("Cancel") }
-        },
-        title = { Text("New Habit") },
-        text = {
-            TextField(value = name, onValueChange = { name = it }, placeholder = { Text("Habit name") })
         }
     )
-}
-
-fun formatTotal(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    return String.format("%dh %02dm", h, m)
-}
-
-fun formatSeconds(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    val s = seconds % 60
-    return if (h > 0) "%02d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
