@@ -1,6 +1,5 @@
 package com.example.tenthousand.ui.screens.habit_detail
 
-import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -12,12 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tenthousand.data.local.dao.HabitDao
-import com.example.tenthousand.ui.components.StopwatchComponent
-import com.example.tenthousand.ui.components.TimerComponent
 import com.example.tenthousand.ui.screens.habit_list.formatSeconds
-import com.example.tenthousand.ui.screens.habit_list.formatTotal
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,7 +41,6 @@ fun HabitDetailScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // Horizontal pager for Timer and Stopwatch
         val pagerState = rememberPagerState(initialPage = 0) { 2 }
 
         HorizontalPager(
@@ -59,20 +52,22 @@ fun HabitDetailScreen(
                 1 -> StopwatchPage(ui, viewModel)
             }
         }
-
     }
 }
 
 @Composable
 fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
-    val totalSeconds = remember { mutableStateOf(25 * 60L) } // default 25 min
     var showDialog by remember { mutableStateOf(false) }
-    val remaining = ui.timerRemaining.takeIf { it > 0 } ?: totalSeconds.value
-    val progress = remaining.toFloat() / totalSeconds.value
+
+    // Progress calculation safe from dividing by zero
+    val progress = if (ui.timerTotal > 0) {
+        ui.timerRemaining.toFloat() / ui.timerTotal.toFloat()
+    } else 0f
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Text("Timer", style = MaterialTheme.typography.titleMedium)
+        Text("Focus Timer", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(16.dp))
+
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
             CircularProgressIndicator(
                 progress = { progress },
@@ -80,43 +75,27 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
                 modifier = Modifier.fillMaxSize()
             )
             Text(
-                formatSeconds(remaining),
+                text = formatSeconds(ui.timerRemaining),
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier
-                    .clickable { showDialog = true } // click to change time
+                modifier = Modifier.clickable {
+                    // Only allow changing time when timer is paused
+                    if (!ui.timerRunning) showDialog = true
+                }
             )
         }
+
         Spacer(Modifier.height(16.dp))
 
-        val running = ui.timerRunning
         Button(onClick = {
-            if (running) viewModel.setTimerRunning(false)
-            else viewModel.setTimerRunning(true)
+            if (ui.timerRunning) viewModel.pauseTimer()
+            else viewModel.startTimer()
         }) {
-            Text(if (running) "Pause" else "Start")
-        }
-
-        // Timer ticking
-        LaunchedEffect(running) {
-            if (running) {
-                var sec = remaining
-                while (sec > 0 && ui.timerRunning) {
-                    kotlinx.coroutines.delay(1000)
-                    sec -= 1
-                    viewModel.setTimerRemaining(sec)
-                }
-                if (sec <= 0) {
-                    viewModel.creditSeconds(totalSeconds.value)
-                    viewModel.setTimerRunning(false)
-                    viewModel.setTimerRemaining(totalSeconds.value)
-                }
-            }
+            Text(if (ui.timerRunning) "Pause" else "Start")
         }
     }
 
-    // Dialog to set timer
     if (showDialog) {
-        var input by remember { mutableStateOf((totalSeconds.value / 60).toString()) } // minutes
+        var input by remember { mutableStateOf((ui.timerTotal / 60).toString()) }
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = { Text("Set Timer (minutes)") },
@@ -129,9 +108,8 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val minutes = input.toLongOrNull() ?: 25
-                    totalSeconds.value = minutes * 60
-                    viewModel.setTimerRemaining(totalSeconds.value)
+                    val minutes = input.toLongOrNull() ?: 25L
+                    viewModel.setTimerTotal(minutes)
                     showDialog = false
                 }) { Text("Set") }
             },
@@ -142,39 +120,38 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
     }
 }
 
-
 @Composable
 fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
-    val elapsed = ui.stopwatchElapsed
-
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Text("Stopwatch", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(16.dp))
+
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
             CircularProgressIndicator(
-                progress = 0f, // you can calculate progress if you want
+                progress = { 1f }, // Full circle for stopwatch
                 strokeWidth = 12.dp,
                 modifier = Modifier.fillMaxSize()
             )
-            Text(formatSeconds(elapsed), style = MaterialTheme.typography.titleLarge)
-        }
-        Spacer(Modifier.height(16.dp))
-        val running = ui.stopwatchRunning
-        Button(onClick = {
-            if (running) viewModel.setStopwatchRunning(false)
-            else viewModel.setStopwatchRunning(true)
-        }) {
-            Text(if (running) "Pause" else "Start")
+            Text(
+                text = formatSeconds(ui.stopwatchElapsed),
+                style = MaterialTheme.typography.titleLarge
+            )
         }
 
-        LaunchedEffect(running) {
-            if (running) {
-                var sec = elapsed
-                while (ui.stopwatchRunning) {
-                    kotlinx.coroutines.delay(1000)
-                    sec += 1
-                    viewModel.setStopwatchElapsed(sec)
-                    viewModel.creditSeconds(1)
+        Spacer(Modifier.height(16.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                if (ui.stopwatchRunning) viewModel.pauseStopwatch()
+                else viewModel.startStopwatch()
+            }) {
+                Text(if (ui.stopwatchRunning) "Pause" else "Start")
+            }
+
+            // Only show save button if we have actual time to credit
+            if (ui.stopwatchElapsed > 0 && !ui.stopwatchRunning) {
+                Button(onClick = { viewModel.stopAndCreditStopwatch() }) {
+                    Text("Save & Reset")
                 }
             }
         }

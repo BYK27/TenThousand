@@ -5,15 +5,21 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.jetbrains.annotations.Debug
 
 data class HabitDetailUiState(
     val habit: HabitEntity? = null,
-    val timerRunning: Boolean = false,
-    val timerRemaining: Long = 0L,
 
+    // Timer State
+    val timerRunning: Boolean = false,
+    val timerTotal: Long = 25 * 60L, // Default 25 minutes
+    val timerRemaining: Long = 25 * 60L,
+
+    // Stopwatch State
     val stopwatchRunning: Boolean = false,
     val stopwatchElapsed: Long = 0L
 )
@@ -25,6 +31,12 @@ class HabitDetailViewModel(
 
     private val _uiState = MutableStateFlow(HabitDetailUiState())
     val uiState: StateFlow<HabitDetailUiState> = _uiState.asStateFlow()
+
+    private var timerJob: Job? = null
+    private var timerTargetTimeMillis: Long = 0L
+
+    private var stopwatchJob: Job? = null
+    private var stopwatchStartRealTimeMillis: Long = 0L
 
     init {
         observeHabit()
@@ -38,7 +50,7 @@ class HabitDetailViewModel(
         }
     }
 
-    fun creditSeconds(seconds: Long) {
+    private fun creditSeconds(seconds: Long) {
         Log.d("HabitDetailViewModel", "Crediting $seconds seconds to habitId=$habitId")
         viewModelScope.launch {
             dao.addSeconds(habitId, seconds)
@@ -46,24 +58,86 @@ class HabitDetailViewModel(
     }
 
     // ----------------------
-    // TIMER STATE
+    // TIMER LOGIC
     // ----------------------
-    fun setTimerRunning(running: Boolean) {
-        _uiState.update { it.copy(timerRunning = running) }
+
+    fun setTimerTotal(minutes: Long) {
+        pauseTimer()
+        val totalSeconds = minutes * 60L
+        _uiState.update {
+            it.copy(timerTotal = totalSeconds, timerRemaining = totalSeconds)
+        }
     }
 
-    fun setTimerRemaining(remaining: Long) {
-        _uiState.update { it.copy(timerRemaining = remaining) }
+    fun startTimer() {
+        if (_uiState.value.timerRunning) return
+        val remaining = _uiState.value.timerRemaining
+        if (remaining <= 0) return
+
+        // Calculate exactly when the timer should finish in the real world
+        timerTargetTimeMillis = System.currentTimeMillis() + (remaining * 1000L)
+        _uiState.update { it.copy(timerRunning = true) }
+
+        timerJob = viewModelScope.launch {
+            while (isActive && _uiState.value.timerRunning) {
+                val now = System.currentTimeMillis()
+                val diffSeconds = (timerTargetTimeMillis - now) / 1000L
+
+                if (diffSeconds <= 0) {
+                    // Timer reached 0!
+                    _uiState.update { it.copy(timerRemaining = 0, timerRunning = false) }
+                    creditSeconds(_uiState.value.timerTotal)
+
+                    // Reset timer to original duration for the next session
+                    _uiState.update { it.copy(timerRemaining = it.timerTotal) }
+                    break
+                } else {
+                    _uiState.update { it.copy(timerRemaining = diffSeconds) }
+                }
+
+                // Tick 5 times a second so the UI updates smoothly and never skips a second
+                delay(200)
+            }
+        }
+    }
+
+    fun pauseTimer() {
+        _uiState.update { it.copy(timerRunning = false) }
+        timerJob?.cancel()
     }
 
     // ----------------------
-    // STOPWATCH STATE
+    // STOPWATCH LOGIC
     // ----------------------
-    fun setStopwatchRunning(running: Boolean) {
-        _uiState.update { it.copy(stopwatchRunning = running) }
+
+    fun startStopwatch() {
+        if (_uiState.value.stopwatchRunning) return
+
+        // Offset the start time by however much time has already elapsed
+        stopwatchStartRealTimeMillis = System.currentTimeMillis() - (_uiState.value.stopwatchElapsed * 1000L)
+        _uiState.update { it.copy(stopwatchRunning = true) }
+
+        stopwatchJob = viewModelScope.launch {
+            while (isActive && _uiState.value.stopwatchRunning) {
+                val now = System.currentTimeMillis()
+                val elapsedSeconds = (now - stopwatchStartRealTimeMillis) / 1000L
+                _uiState.update { it.copy(stopwatchElapsed = elapsedSeconds) }
+                delay(200)
+            }
+        }
     }
 
-    fun setStopwatchElapsed(elapsed: Long) {
-        _uiState.update { it.copy(stopwatchElapsed = elapsed) }
+    fun pauseStopwatch() {
+        _uiState.update { it.copy(stopwatchRunning = false) }
+        stopwatchJob?.cancel()
+    }
+
+    fun stopAndCreditStopwatch() {
+        pauseStopwatch()
+        val elapsed = _uiState.value.stopwatchElapsed
+        if (elapsed > 0) {
+            creditSeconds(elapsed)
+            _uiState.update { it.copy(stopwatchElapsed = 0L) }
+        }
     }
 }
