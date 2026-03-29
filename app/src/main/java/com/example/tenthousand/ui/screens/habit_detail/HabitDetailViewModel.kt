@@ -18,6 +18,7 @@ data class HabitDetailUiState(
     val timerRunning: Boolean = false,
     val timerTotal: Long = 25 * 60L, // Default 25 minutes
     val timerRemaining: Long = 25 * 60L,
+    val timerFinishedEvent: Boolean = false,
 
     // Stopwatch State
     val stopwatchRunning: Boolean = false,
@@ -85,7 +86,13 @@ class HabitDetailViewModel(
 
                 if (diffSeconds <= 0) {
                     // Timer reached 0!
-                    _uiState.update { it.copy(timerRemaining = 0, timerRunning = false) }
+                    _uiState.update {
+                        it.copy(
+                            timerRemaining = 0,
+                            timerRunning = false,
+                            timerFinishedEvent = true
+                        )
+                    }
                     creditSeconds(_uiState.value.timerTotal)
 
                     // Reset timer to original duration for the next session
@@ -94,11 +101,13 @@ class HabitDetailViewModel(
                 } else {
                     _uiState.update { it.copy(timerRemaining = diffSeconds) }
                 }
-
-                // Tick 5 times a second so the UI updates smoothly and never skips a second
                 delay(200)
             }
         }
+    }
+
+    fun consumeTimerFinishedEvent() {
+        _uiState.update { it.copy(timerFinishedEvent = false) }
     }
 
     fun pauseTimer() {
