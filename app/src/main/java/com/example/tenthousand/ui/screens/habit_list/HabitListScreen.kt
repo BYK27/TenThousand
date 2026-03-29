@@ -3,10 +3,14 @@ package com.example.tenthousand.ui.screens.habit_list
 import HabitEntity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -15,10 +19,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tenthousand.data.local.dao.HabitDao
+
+// Predefined modern color palette
+val habitColors = listOf(
+    Color(0xFF6650a4), // Purple
+    Color(0xFFE91E63), // Pink
+    Color(0xFFF44336), // Red
+    Color(0xFFFF9800), // Orange
+    Color(0xFF4CAF50), // Green
+    Color(0xFF009688), // Teal
+    Color(0xFF2196F3), // Blue
+    Color(0xFF3F51B5)  // Indigo
+)
 
 @Composable
 fun HabitListScreen(
@@ -34,7 +52,6 @@ fun HabitListScreen(
 
     var selectedHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var showOptionsDialog by remember { mutableStateOf(false) }
-    var renameInput by remember { mutableStateOf("") }
 
     // Calculate total time across all habits
     val totalSecondsAllHabits = state.habits.sumOf { it.totalSeconds }
@@ -83,7 +100,6 @@ fun HabitListScreen(
                         onClick = { onOpenHabit(habit.id) },
                         onLongClick = {
                             selectedHabit = habit
-                            renameInput = habit.name
                             showOptionsDialog = true
                         }
                     )
@@ -93,9 +109,12 @@ fun HabitListScreen(
     }
 
     if (showAddDialog) {
-        AddHabitDialog(
-            onAdd = { name ->
-                viewModel.createHabit(name)
+        HabitEditorDialog(
+            initialName = "",
+            initialColor = habitColors[0].toArgb(),
+            title = "New Habit",
+            onConfirm = { name, color ->
+                viewModel.createHabit(name, color)
                 showAddDialog = false
             },
             onCancel = { showAddDialog = false }
@@ -103,31 +122,18 @@ fun HabitListScreen(
     }
 
     if (showOptionsDialog && selectedHabit != null) {
-        AlertDialog(
-            onDismissRequest = { showOptionsDialog = false },
-            title = { Text("Edit Habit") },
-            text = {
-                OutlinedTextField(
-                    value = renameInput,
-                    onValueChange = { renameInput = it },
-                    label = { Text("Habit Name") },
-                    singleLine = true
-                )
+        HabitEditorDialog(
+            initialName = selectedHabit!!.name,
+            initialColor = selectedHabit!!.color,
+            title = "Edit Habit",
+            onConfirm = { name, color ->
+                viewModel.updateHabit(selectedHabit!!.id, name, color)
+                showOptionsDialog = false
             },
-            confirmButton = {
-                Button(onClick = {
-                    val newName = renameInput.trim()
-                    if (newName.isNotEmpty()) {
-                        viewModel.renameHabit(selectedHabit!!.id, newName)
-                    }
-                    showOptionsDialog = false
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    viewModel.deleteHabit(selectedHabit!!)
-                    showOptionsDialog = false
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            onCancel = { showOptionsDialog = false },
+            onDelete = {
+                viewModel.deleteHabit(selectedHabit!!)
+                showOptionsDialog = false
             }
         )
     }
@@ -149,21 +155,99 @@ fun HabitRow(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
-            .padding(16.dp),
+            .padding(end = 16.dp), // Removed start padding to attach color strip to edge
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = habit.name,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Medium
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Sleek color indicator strip
+            Box(
+                modifier = Modifier
+                    .width(8.dp)
+                    .height(64.dp)
+                    .background(Color(habit.color))
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = habit.name,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
         Text(
             text = formatSleekTotal(habit.totalSeconds),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+@Composable
+fun HabitEditorDialog(
+    initialName: String,
+    initialColor: Int,
+    title: String,
+    onConfirm: (String, Int) -> Unit,
+    onCancel: () -> Unit,
+    onDelete: (() -> Unit)? = null
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var selectedColor by remember { mutableIntStateOf(initialColor) }
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("e.g. Reading") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Theme Color", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Horizontal Color Picker
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(habitColors) { color ->
+                        val isSelected = color.toArgb() == selectedColor
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (isSelected) 3.dp else 0.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                    shape = CircleShape
+                                )
+                                .clickable { selectedColor = color.toArgb() }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (name.isNotBlank()) onConfirm(name.trim(), selectedColor) }) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                TextButton(onClick = onCancel) { Text("Cancel") }
+            }
+        }
+    )
 }
 
 fun formatSleekTotal(seconds: Long): String {
@@ -176,27 +260,4 @@ fun formatSleekTimer(seconds: Long): String {
     val m = seconds / 60
     val s = seconds % 60
     return String.format("%02d:%02d", m, s)
-}
-
-@Composable
-fun AddHabitDialog(onAdd: (String) -> Unit, onCancel: () -> Unit) {
-    var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("New Habit") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                placeholder = { Text("e.g. Unreal Engine") },
-                singleLine = true
-            )
-        },
-        confirmButton = {
-            Button(onClick = { if (name.isNotBlank()) onAdd(name.trim()) }) { Text("Add") }
-        },
-        dismissButton = {
-            TextButton(onClick = onCancel) { Text("Cancel") }
-        }
-    )
 }

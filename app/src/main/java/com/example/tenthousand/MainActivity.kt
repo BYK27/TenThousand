@@ -22,7 +22,9 @@ class MainActivity : ComponentActivity() {
             applicationContext,
             AppDatabase::class.java,
             "habits.db"
-        ).build()
+        )
+            .fallbackToDestructiveMigration(false)
+            .build()
 
         val dao = db.habitDao()
 
@@ -37,12 +39,9 @@ fun AppNavHost(dao: HabitDao) {
     val nav = rememberNavController()
 
     NavHost(navController = nav, startDestination = "list") {
-
         composable("list") {
             HabitListScreen(
-                onOpenHabit = { id ->
-                    nav.navigate("habit/$id")
-                },
+                onOpenHabit = { id -> nav.navigate("habit/$id") },
                 dao = dao
             )
         }

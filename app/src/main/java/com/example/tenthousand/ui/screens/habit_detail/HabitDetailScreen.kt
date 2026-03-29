@@ -13,11 +13,13 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -41,19 +43,21 @@ fun HabitDetailScreen(
     val ui by viewModel.uiState.collectAsState()
     val habit = ui.habit
 
+    // Safely extract the chosen color or fallback to primary theme color
+    val activeColor = habit?.color?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(top = 16.dp, bottom = 32.dp, start = 24.dp, end = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Custom sleek back button and title area
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Spacer(modifier = Modifier.weight(1f))
             Text(
@@ -62,13 +66,11 @@ fun HabitDetailScreen(
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.weight(1f))
-            // Empty box to balance the back button visually
             Box(modifier = Modifier.size(48.dp))
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // Total time matching Sketch 2
         Text(
             text = "Focus Time: ${formatSleekTotal(ui.habit?.totalSeconds ?: 0L)}",
             style = MaterialTheme.typography.headlineSmall,
@@ -84,19 +86,19 @@ fun HabitDetailScreen(
             modifier = Modifier.weight(1f)
         ) { page ->
             when (page) {
-                0 -> TimerPage(ui, viewModel)
-                1 -> StopwatchPage(ui, viewModel)
+                // We pass the activeColor downwards into the pages
+                0 -> TimerPage(ui, viewModel, activeColor)
+                1 -> StopwatchPage(ui, viewModel, activeColor)
             }
         }
     }
 }
 
 @Composable
-fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
+fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColor: Color) {
     val context = LocalContext.current
     var showDialog by remember { mutableStateOf(false) }
 
-    // Alarm trigger
     LaunchedEffect(ui.timerFinishedEvent) {
         if (ui.timerFinishedEvent) {
             playAlarmAndVibrate(context)
@@ -121,7 +123,6 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
             fontWeight = FontWeight.Bold
         )
 
-        // Massive modern Circular Progress
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -132,12 +133,13 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
                 progress = { progress },
                 strokeWidth = 24.dp,
                 strokeCap = StrokeCap.Round,
+                color = themeColor, // <--- Apply dynamically chosen color
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier
                     .size(280.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null // Removes ripple effect for a cleaner tap
+                        indication = null
                     ) {
                         if (!ui.timerRunning) showDialog = true
                     }
@@ -150,7 +152,6 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
             )
         }
 
-        // Chunky Action Button
         Button(
             onClick = {
                 if (ui.timerRunning) viewModel.pauseTimer()
@@ -158,7 +159,8 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
             },
             shape = RoundedCornerShape(32.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (ui.timerRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                // Use error (red) when running/pausable, otherwise use theme color
+                containerColor = if (ui.timerRunning) MaterialTheme.colorScheme.error else themeColor
             ),
             modifier = Modifier
                 .fillMaxWidth(0.7f)
@@ -183,25 +185,35 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
                     value = input,
                     onValueChange = { input = it.filter { c -> c.isDigit() } },
                     label = { Text("Minutes") },
-                    singleLine = true
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = themeColor,
+                        focusedLabelColor = themeColor,
+                        cursorColor = themeColor
+                    )
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    val minutes = input.toLongOrNull() ?: 25L
-                    viewModel.setTimerTotal(minutes)
-                    showDialog = false
-                }) { Text("Set") }
+                Button(
+                    onClick = {
+                        val minutes = input.toLongOrNull() ?: 25L
+                        viewModel.setTimerTotal(minutes)
+                        showDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = themeColor)
+                ) { Text("Set") }
             },
             dismissButton = {
-                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+                TextButton(
+                    onClick = { showDialog = false }
+                ) { Text("Cancel", color = themeColor) }
             }
         )
     }
 }
 
 @Composable
-fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
+fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColor: Color) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
@@ -218,8 +230,9 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
                 .fillMaxWidth()
         ) {
             CircularProgressIndicator(
-                progress = { 1f }, // Always full circle
+                progress = { 1f },
                 strokeWidth = 24.dp,
+                color = themeColor, // <--- Apply dynamically chosen color
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.size(280.dp)
             )
@@ -241,7 +254,7 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
                 },
                 shape = RoundedCornerShape(32.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (ui.stopwatchRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    containerColor = if (ui.stopwatchRunning) MaterialTheme.colorScheme.error else themeColor
                 ),
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
@@ -274,7 +287,6 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel) {
     }
 }
 
-// Keeping your audio/vibration helper function intact
 fun playAlarmAndVibrate(context: Context) {
     val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
