@@ -36,8 +36,9 @@ fun HabitDetailScreen(
     dao: HabitDao,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current.applicationContext
     val viewModel: HabitDetailViewModel = viewModel(
-        factory = HabitDetailViewModelFactory(habitId, dao)
+        factory = HabitDetailViewModelFactory(habitId, dao, context)
     )
 
     val ui by viewModel.uiState.collectAsState()

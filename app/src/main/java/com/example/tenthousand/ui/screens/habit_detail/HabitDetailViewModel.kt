@@ -1,10 +1,12 @@
 package com.example.tenthousand.ui.screens.habit_detail
 
 import HabitEntity
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
+import com.example.tenthousand.util.TimerStateManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -13,25 +15,24 @@ import kotlinx.coroutines.launch
 
 data class HabitDetailUiState(
     val habit: HabitEntity? = null,
-
-    // Timer State
     val timerRunning: Boolean = false,
-    val timerTotal: Long = 25 * 60L, // Default 25 minutes
+    val timerTotal: Long = 25 * 60L,
     val timerRemaining: Long = 25 * 60L,
     val timerFinishedEvent: Boolean = false,
-
-    // Stopwatch State
     val stopwatchRunning: Boolean = false,
     val stopwatchElapsed: Long = 0L
 )
 
 class HabitDetailViewModel(
     private val habitId: Long,
-    private val dao: HabitDao
+    private val dao: HabitDao,
+    context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HabitDetailUiState())
     val uiState: StateFlow<HabitDetailUiState> = _uiState.asStateFlow()
+
+    private val timerStateManager = TimerStateManager(context)
 
     private var timerJob: Job? = null
     private var timerTargetTimeMillis: Long = 0L
@@ -41,6 +42,7 @@ class HabitDetailViewModel(
 
     init {
         observeHabit()
+        restoreState() // <-- Check SharedPreferences on startup
     }
 
     private fun observeHabit() {
@@ -53,8 +55,41 @@ class HabitDetailViewModel(
 
     private fun creditSeconds(seconds: Long) {
         Log.d("HabitDetailViewModel", "Crediting $seconds seconds to habitId=$habitId")
-        viewModelScope.launch {
-            dao.addSeconds(habitId, seconds)
+        viewModelScope.launch { dao.addSeconds(habitId, seconds) }
+    }
+
+    // --- RESTORE LOGIC ---
+    private fun restoreState() {
+        val activeTimer = timerStateManager.getActiveTimer(habitId)
+        if (activeTimer != null) {
+            val (targetTime, totalSec) = activeTimer
+            val now = System.currentTimeMillis()
+            val diffSeconds = (targetTime - now) / 1000L
+
+            _uiState.update { it.copy(timerTotal = totalSec) }
+
+            if (diffSeconds <= 0) {
+                // Timer finished while app was completely closed!
+                creditSeconds(totalSec)
+                _uiState.update { it.copy(
+                    timerRemaining = totalSec,
+                    timerRunning = false,
+                    timerFinishedEvent = true
+                )}
+                timerStateManager.clearActiveTimer()
+            } else {
+                // Timer is still running, catch up UI
+                timerTargetTimeMillis = targetTime
+                _uiState.update { it.copy(timerRemaining = diffSeconds, timerRunning = true) }
+                resumeTimerJob()
+            }
+        }
+
+        val activeSw = timerStateManager.getActiveStopwatch(habitId)
+        if (activeSw != null) {
+            stopwatchStartRealTimeMillis = activeSw
+            _uiState.update { it.copy(stopwatchRunning = true) }
+            resumeStopwatchJob()
         }
     }
 
@@ -65,9 +100,7 @@ class HabitDetailViewModel(
     fun setTimerTotal(minutes: Long) {
         pauseTimer()
         val totalSeconds = minutes * 60L
-        _uiState.update {
-            it.copy(timerTotal = totalSeconds, timerRemaining = totalSeconds)
-        }
+        _uiState.update { it.copy(timerTotal = totalSeconds, timerRemaining = totalSeconds) }
     }
 
     fun startTimer() {
@@ -75,28 +108,27 @@ class HabitDetailViewModel(
         val remaining = _uiState.value.timerRemaining
         if (remaining <= 0) return
 
-        // Calculate exactly when the timer should finish in the real world
         timerTargetTimeMillis = System.currentTimeMillis() + (remaining * 1000L)
         _uiState.update { it.copy(timerRunning = true) }
 
+        // Save persistently
+        timerStateManager.saveActiveTimer(habitId, timerTargetTimeMillis, _uiState.value.timerTotal)
+
+        resumeTimerJob()
+    }
+
+    private fun resumeTimerJob() {
+        timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (isActive && _uiState.value.timerRunning) {
                 val now = System.currentTimeMillis()
                 val diffSeconds = (timerTargetTimeMillis - now) / 1000L
 
                 if (diffSeconds <= 0) {
-                    // Timer reached 0!
-                    _uiState.update {
-                        it.copy(
-                            timerRemaining = 0,
-                            timerRunning = false,
-                            timerFinishedEvent = true
-                        )
-                    }
+                    _uiState.update { it.copy(timerRemaining = 0, timerRunning = false, timerFinishedEvent = true) }
                     creditSeconds(_uiState.value.timerTotal)
-
-                    // Reset timer to original duration for the next session
                     _uiState.update { it.copy(timerRemaining = it.timerTotal) }
+                    timerStateManager.clearActiveTimer() // Clean up storage
                     break
                 } else {
                     _uiState.update { it.copy(timerRemaining = diffSeconds) }
@@ -113,6 +145,7 @@ class HabitDetailViewModel(
     fun pauseTimer() {
         _uiState.update { it.copy(timerRunning = false) }
         timerJob?.cancel()
+        timerStateManager.clearActiveTimer() // Pausing stops the background check
     }
 
     // ----------------------
@@ -122,10 +155,17 @@ class HabitDetailViewModel(
     fun startStopwatch() {
         if (_uiState.value.stopwatchRunning) return
 
-        // Offset the start time by however much time has already elapsed
         stopwatchStartRealTimeMillis = System.currentTimeMillis() - (_uiState.value.stopwatchElapsed * 1000L)
         _uiState.update { it.copy(stopwatchRunning = true) }
 
+        // Save persistently
+        timerStateManager.saveActiveStopwatch(habitId, stopwatchStartRealTimeMillis)
+
+        resumeStopwatchJob()
+    }
+
+    private fun resumeStopwatchJob() {
+        stopwatchJob?.cancel()
         stopwatchJob = viewModelScope.launch {
             while (isActive && _uiState.value.stopwatchRunning) {
                 val now = System.currentTimeMillis()
@@ -139,6 +179,7 @@ class HabitDetailViewModel(
     fun pauseStopwatch() {
         _uiState.update { it.copy(stopwatchRunning = false) }
         stopwatchJob?.cancel()
+        timerStateManager.clearActiveStopwatch()
     }
 
     fun stopAndCreditStopwatch() {
