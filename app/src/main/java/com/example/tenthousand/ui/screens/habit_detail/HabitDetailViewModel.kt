@@ -6,12 +6,14 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
+import com.example.tenthousand.util.CoinManager
 import com.example.tenthousand.util.TimerStateManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 data class HabitDetailUiState(
     val habit: HabitEntity? = null,
@@ -20,7 +22,8 @@ data class HabitDetailUiState(
     val timerRemaining: Long = 25 * 60L,
     val timerFinishedEvent: Boolean = false,
     val stopwatchRunning: Boolean = false,
-    val stopwatchElapsed: Long = 0L
+    val stopwatchElapsed: Long = 0L,
+    val totalCoins: Int = 0
 )
 
 class HabitDetailViewModel(
@@ -32,7 +35,12 @@ class HabitDetailViewModel(
     private val _uiState = MutableStateFlow(HabitDetailUiState())
     val uiState: StateFlow<HabitDetailUiState> = _uiState.asStateFlow()
 
+    // SharedFlow to broadcast rapid brainrot coin events to the UI
+    private val _coinEvents = MutableSharedFlow<Int>(extraBufferCapacity = 100)
+    val coinEvents = _coinEvents.asSharedFlow()
+
     private val timerStateManager = TimerStateManager(context)
+    private val coinManager = CoinManager(context)
 
     private var timerJob: Job? = null
     private var timerTargetTimeMillis: Long = 0L
@@ -40,9 +48,13 @@ class HabitDetailViewModel(
     private var stopwatchJob: Job? = null
     private var stopwatchStartRealTimeMillis: Long = 0L
 
+    private var coinAccumulatorMillis: Long = 0L
+    private var lastTickTimeMillis: Long = 0L
+
     init {
         observeHabit()
-        restoreState() // <-- Check SharedPreferences on startup
+        observeCoins()
+        restoreState()
     }
 
     private fun observeHabit() {
@@ -53,12 +65,24 @@ class HabitDetailViewModel(
         }
     }
 
+    private fun observeCoins() {
+        viewModelScope.launch {
+            coinManager.coins.collect { coins ->
+                _uiState.update { it.copy(totalCoins = coins) }
+            }
+        }
+    }
+
     private fun creditSeconds(seconds: Long) {
-        Log.d("HabitDetailViewModel", "Crediting $seconds seconds to habitId=$habitId")
         viewModelScope.launch { dao.addSeconds(habitId, seconds) }
     }
 
-    // --- RESTORE LOGIC ---
+    private fun awardCoins(amount: Int) {
+        if (amount > 0) {
+            coinManager.addCoins(amount)
+        }
+    }
+
     private fun restoreState() {
         val activeTimer = timerStateManager.getActiveTimer(habitId)
         if (activeTimer != null) {
@@ -69,8 +93,10 @@ class HabitDetailViewModel(
             _uiState.update { it.copy(timerTotal = totalSec) }
 
             if (diffSeconds <= 0) {
-                // Timer finished while app was completely closed!
                 creditSeconds(totalSec)
+                // Offline brainrot calculation (avg ~3 coins per sec)
+                awardCoins((totalSec * 3).toInt())
+
                 _uiState.update { it.copy(
                     timerRemaining = totalSec,
                     timerRunning = false,
@@ -78,7 +104,6 @@ class HabitDetailViewModel(
                 )}
                 timerStateManager.clearActiveTimer()
             } else {
-                // Timer is still running, catch up UI
                 timerTargetTimeMillis = targetTime
                 _uiState.update { it.copy(timerRemaining = diffSeconds, timerRunning = true) }
                 resumeTimerJob()
@@ -93,10 +118,6 @@ class HabitDetailViewModel(
         }
     }
 
-    // ----------------------
-    // TIMER LOGIC
-    // ----------------------
-
     fun setTimerTotal(minutes: Long) {
         pauseTimer()
         val totalSeconds = minutes * 60L
@@ -110,30 +131,55 @@ class HabitDetailViewModel(
 
         timerTargetTimeMillis = System.currentTimeMillis() + (remaining * 1000L)
         _uiState.update { it.copy(timerRunning = true) }
-
-        // Save persistently
         timerStateManager.saveActiveTimer(habitId, timerTargetTimeMillis, _uiState.value.timerTotal)
 
         resumeTimerJob()
     }
 
+    private fun processBrainrotDrops(delta: Long) {
+        coinAccumulatorMillis += delta
+        // Trigger logic very frequently
+        if (coinAccumulatorMillis >= 100L) {
+            coinAccumulatorMillis -= 100L
+
+            val chance = Random.nextFloat()
+            val gain = when {
+                chance > 0.98f -> Random.nextInt(100, 1000) // 2% chance: INSANE JACKPOT
+                chance > 0.85f -> Random.nextInt(10, 50)    // 13% chance: BIG HIT
+                chance > 0.40f -> Random.nextInt(2, 10)     // 45% chance: MULTI
+                else -> 1                                   // 40% chance: SINGLE
+            }
+
+            awardCoins(gain)
+            _coinEvents.tryEmit(gain) // Instantly blast to the UI
+        }
+    }
+
     private fun resumeTimerJob() {
         timerJob?.cancel()
+        lastTickTimeMillis = System.currentTimeMillis()
+        coinAccumulatorMillis = 0L
+
         timerJob = viewModelScope.launch {
             while (isActive && _uiState.value.timerRunning) {
                 val now = System.currentTimeMillis()
+                val delta = now - lastTickTimeMillis
+                lastTickTimeMillis = now
+
+                processBrainrotDrops(delta)
+
                 val diffSeconds = (timerTargetTimeMillis - now) / 1000L
 
                 if (diffSeconds <= 0) {
                     _uiState.update { it.copy(timerRemaining = 0, timerRunning = false, timerFinishedEvent = true) }
                     creditSeconds(_uiState.value.timerTotal)
                     _uiState.update { it.copy(timerRemaining = it.timerTotal) }
-                    timerStateManager.clearActiveTimer() // Clean up storage
+                    timerStateManager.clearActiveTimer()
                     break
                 } else {
                     _uiState.update { it.copy(timerRemaining = diffSeconds) }
                 }
-                delay(200)
+                delay(16) // ~60 FPS update rate
             }
         }
     }
@@ -145,33 +191,33 @@ class HabitDetailViewModel(
     fun pauseTimer() {
         _uiState.update { it.copy(timerRunning = false) }
         timerJob?.cancel()
-        timerStateManager.clearActiveTimer() // Pausing stops the background check
+        timerStateManager.clearActiveTimer()
     }
-
-    // ----------------------
-    // STOPWATCH LOGIC
-    // ----------------------
 
     fun startStopwatch() {
         if (_uiState.value.stopwatchRunning) return
-
         stopwatchStartRealTimeMillis = System.currentTimeMillis() - (_uiState.value.stopwatchElapsed * 1000L)
         _uiState.update { it.copy(stopwatchRunning = true) }
-
-        // Save persistently
         timerStateManager.saveActiveStopwatch(habitId, stopwatchStartRealTimeMillis)
-
         resumeStopwatchJob()
     }
 
     private fun resumeStopwatchJob() {
         stopwatchJob?.cancel()
+        lastTickTimeMillis = System.currentTimeMillis()
+        coinAccumulatorMillis = 0L
+
         stopwatchJob = viewModelScope.launch {
             while (isActive && _uiState.value.stopwatchRunning) {
                 val now = System.currentTimeMillis()
+                val delta = now - lastTickTimeMillis
+                lastTickTimeMillis = now
+
+                processBrainrotDrops(delta)
+
                 val elapsedSeconds = (now - stopwatchStartRealTimeMillis) / 1000L
                 _uiState.update { it.copy(stopwatchElapsed = elapsedSeconds) }
-                delay(200)
+                delay(16)
             }
         }
     }
