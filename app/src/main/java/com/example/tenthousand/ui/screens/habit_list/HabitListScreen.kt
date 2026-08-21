@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,22 +27,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tenthousand.data.local.dao.HabitDao
 
-// Predefined modern color palette
 val habitColors = listOf(
-    Color(0xFF6650a4), // Purple
-    Color(0xFFE91E63), // Pink
-    Color(0xFFF44336), // Red
-    Color(0xFFFF9800), // Orange
-    Color(0xFF4CAF50), // Green
-    Color(0xFF009688), // Teal
-    Color(0xFF2196F3), // Blue
-    Color(0xFF3F51B5)  // Indigo
+    Color(0xFF6650a4), Color(0xFFE91E63), Color(0xFFF44336),
+    Color(0xFFFF9800), Color(0xFF4CAF50), Color(0xFF009688),
+    Color(0xFF2196F3), Color(0xFF3F51B5)
 )
 
 @Composable
 fun HabitListScreen(
     dao: HabitDao,
-    onOpenHabit: (Long) -> Unit
+    onOpenHabit: (Long) -> Unit,
+    onOpenShop: () -> Unit
 ) {
     val viewModel: HabitListViewModel = viewModel(
         factory = HabitListViewModelFactory(dao)
@@ -53,7 +49,6 @@ fun HabitListScreen(
     var selectedHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var showOptionsDialog by remember { mutableStateOf(false) }
 
-    // Calculate total time across all habits
     val totalSecondsAllHabits = state.habits.sumOf { it.totalSeconds }
 
     Scaffold(
@@ -67,43 +62,57 @@ fun HabitListScreen(
             }
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp)
-        ) {
-            Text(
-                text = "My Habits",
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Total Focus Time: ${formatSleekTotal(totalSecondsAllHabits)}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
+        // Wrap in Box to position Shop FAB on bottom left
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
-                items(state.habits) { habit ->
-                    HabitRow(
-                        habit = habit,
-                        onClick = { onOpenHabit(habit.id) },
-                        onLongClick = {
-                            selectedHabit = habit
-                            showOptionsDialog = true
-                        }
-                    )
+                Text(
+                    text = "My Habits",
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Total Focus Time: ${formatSleekTotal(totalSecondsAllHabits)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(state.habits) { habit ->
+                        HabitRow(
+                            habit = habit,
+                            onClick = { onOpenHabit(habit.id) },
+                            onLongClick = {
+                                selectedHabit = habit
+                                showOptionsDialog = true
+                            }
+                        )
+                    }
                 }
+            }
+
+            // Bottom Left Shop FAB
+            FloatingActionButton(
+                onClick = onOpenShop,
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 24.dp, bottom = 16.dp)
+            ) {
+                Icon(Icons.Default.ShoppingCart, contentDescription = "Shop")
             }
         }
     }
@@ -141,26 +150,18 @@ fun HabitListScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun HabitRow(
-    habit: HabitEntity,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
+fun HabitRow(habit: HabitEntity, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-            .padding(end = 16.dp), // Removed start padding to attach color strip to edge
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(end = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Sleek color indicator strip
             Box(
                 modifier = Modifier
                     .width(8.dp)
@@ -185,12 +186,8 @@ fun HabitRow(
 
 @Composable
 fun HabitEditorDialog(
-    initialName: String,
-    initialColor: Int,
-    title: String,
-    onConfirm: (String, Int) -> Unit,
-    onCancel: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    initialName: String, initialColor: Int, title: String,
+    onConfirm: (String, Int) -> Unit, onCancel: () -> Unit, onDelete: (() -> Unit)? = null
 ) {
     var name by remember { mutableStateOf(initialName) }
     var selectedColor by remember { mutableIntStateOf(initialColor) }
@@ -207,12 +204,10 @@ fun HabitEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Theme Color", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Horizontal Color Picker
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()

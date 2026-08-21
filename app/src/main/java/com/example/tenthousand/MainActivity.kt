@@ -13,6 +13,7 @@ import androidx.room.Room
 import com.example.tenthousand.data.local.dao.HabitDao
 import com.example.tenthousand.ui.screens.habit_detail.HabitDetailScreen
 import com.example.tenthousand.ui.screens.habit_list.HabitListScreen
+import com.example.tenthousand.ui.screens.shop.ShopScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +43,7 @@ fun AppNavHost(dao: HabitDao) {
         composable("list") {
             HabitListScreen(
                 onOpenHabit = { id -> nav.navigate("habit/$id") },
+                onOpenShop = { nav.navigate("shop") },
                 dao = dao
             )
         }
@@ -56,6 +58,10 @@ fun AppNavHost(dao: HabitDao) {
                 dao = dao,
                 onBack = { nav.popBackStack() }
             )
+        }
+
+        composable("shop") {
+            ShopScreen(onBack = { nav.popBackStack() })
         }
     }
 }

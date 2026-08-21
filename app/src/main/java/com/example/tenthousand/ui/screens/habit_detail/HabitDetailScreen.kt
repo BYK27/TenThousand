@@ -16,6 +16,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,6 +42,7 @@ import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 @Composable
@@ -58,8 +60,10 @@ fun HabitDetailScreen(
     val habit = ui.habit
     val activeColor = habit?.color?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
 
-    // Number format for big brainrot numbers
+    var showWishDialog by remember { mutableStateOf(false) }
+
     val formattedCoins = NumberFormat.getNumberInstance(Locale.US).format(ui.totalCoins)
+    val formattedWishes = NumberFormat.getNumberInstance(Locale.US).format(ui.totalWishes)
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -83,20 +87,48 @@ fun HabitDetailScreen(
                 )
                 Spacer(modifier = Modifier.weight(1f))
 
+                // Currencies Container
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = "Coins",
-                        tint = Color(0xFFFFD700),
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = formattedCoins,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        color = Color(0xFFFFD700)
-                    )
+                    // Coins Display
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Coins",
+                            tint = Color(0xFFFFD700),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = formattedCoins,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFFFFD700)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // Wishes Display (Clickable)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable { showWishDialog = true }
+                            .padding(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Wishes",
+                            tint = Color(0xFFB388FF),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = formattedWishes,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFFB388FF)
+                        )
+                    }
                 }
             }
 
@@ -121,7 +153,95 @@ fun HabitDetailScreen(
         }
 
         BrainrotCoinOverlay(viewModel.coinEvents)
+
+        if (showWishDialog) {
+            WishConversionDialog(
+                totalCoins = ui.totalCoins,
+                onConfirm = { wishes -> viewModel.convertCoinsToWishes(wishes) },
+                onDismiss = { showWishDialog = false }
+            )
+        }
     }
+}
+
+@Composable
+fun WishConversionDialog(
+    totalCoins: Int,
+    onConfirm: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val conversionRate = 95_000
+    val maxAffordable = totalCoins / conversionRate
+    var sliderValue by remember { mutableStateOf(0f) }
+
+    val selectedWishes = sliderValue.roundToInt()
+    val cost = selectedWishes * conversionRate
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFFB388FF))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Convert Wishes", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Exchange Rate: 95,000 💰 = 1 🌠",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "$selectedWishes 🌠",
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFFB388FF)
+                )
+
+                Text(
+                    text = "Cost: ${NumberFormat.getNumberInstance(Locale.US).format(cost)} 💰",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { sliderValue = it },
+                    valueRange = 0f..(maxAffordable.toFloat().coerceAtLeast(1f)),
+                    enabled = maxAffordable > 0
+                )
+
+                if (maxAffordable == 0) {
+                    Text(
+                        text = "Not enough coins to convert.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(selectedWishes)
+                    onDismiss()
+                },
+                enabled = selectedWishes > 0
+            ) {
+                Text("Convert")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 // Particle Physics structure
@@ -138,7 +258,6 @@ fun FocusVFX(isRunning: Boolean, themeColor: Color) {
 
     val particles = remember { mutableStateListOf<Particle>() }
 
-    // Hyper-active game loop
     LaunchedEffect(Unit) {
         var lastFrame = System.nanoTime()
         while (true) {
@@ -146,8 +265,7 @@ fun FocusVFX(isRunning: Boolean, themeColor: Color) {
                 val dt = (frameTime - lastFrame) / 1_000_000_000f
                 lastFrame = frameTime
 
-                // Spawn intensely
-                if (Random.nextFloat() < 0.8f) { // 80% chance every frame to spawn
+                if (Random.nextFloat() < 0.8f) {
                     val angle = Random.nextFloat() * 2 * Math.PI
                     val distance = 140f
                     val speed = Random.nextFloat() * 200f + 50f
@@ -232,8 +350,7 @@ fun BrainrotCoinOverlay(coinEvents: SharedFlow<Int>) {
     LaunchedEffect(Unit) {
         coinEvents.collect { amount ->
             val isJackpot = amount >= 100
-            //val prefix = if (isJackpot) listOf("💰", "🚀", "🤯", "💎").random() else ""
-            val prefix =""
+            val prefix = if (isJackpot) listOf("💰", "🚀", "🤯", "💎").random() else ""
 
             popups.add(
                 BrainrotText(
@@ -257,7 +374,7 @@ fun BrainrotCoinOverlay(coinEvents: SharedFlow<Int>) {
                     val p = iterator.next()
                     p.life -= dt
 
-                    p.vy += 1200f * dt // Heavy gravity
+                    p.vy += 1200f * dt
                     p.x += p.vx * dt
                     p.y += p.vy * dt
                     p.rotation += p.rotVelocity * dt

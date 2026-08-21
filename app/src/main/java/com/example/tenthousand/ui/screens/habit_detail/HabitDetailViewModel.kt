@@ -2,7 +2,6 @@ package com.example.tenthousand.ui.screens.habit_detail
 
 import HabitEntity
 import android.content.Context
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
@@ -23,7 +22,8 @@ data class HabitDetailUiState(
     val timerFinishedEvent: Boolean = false,
     val stopwatchRunning: Boolean = false,
     val stopwatchElapsed: Long = 0L,
-    val totalCoins: Int = 0
+    val totalCoins: Int = 0,
+    val totalWishes: Int = 0
 )
 
 class HabitDetailViewModel(
@@ -35,7 +35,6 @@ class HabitDetailViewModel(
     private val _uiState = MutableStateFlow(HabitDetailUiState())
     val uiState: StateFlow<HabitDetailUiState> = _uiState.asStateFlow()
 
-    // SharedFlow to broadcast rapid brainrot coin events to the UI
     private val _coinEvents = MutableSharedFlow<Int>(extraBufferCapacity = 100)
     val coinEvents = _coinEvents.asSharedFlow()
 
@@ -44,16 +43,14 @@ class HabitDetailViewModel(
 
     private var timerJob: Job? = null
     private var timerTargetTimeMillis: Long = 0L
-
     private var stopwatchJob: Job? = null
     private var stopwatchStartRealTimeMillis: Long = 0L
-
     private var coinAccumulatorMillis: Long = 0L
     private var lastTickTimeMillis: Long = 0L
 
     init {
         observeHabit()
-        observeCoins()
+        observeCurrencies()
         restoreState()
     }
 
@@ -65,11 +62,24 @@ class HabitDetailViewModel(
         }
     }
 
-    private fun observeCoins() {
+    private fun observeCurrencies() {
         viewModelScope.launch {
             coinManager.coins.collect { coins ->
                 _uiState.update { it.copy(totalCoins = coins) }
             }
+        }
+        viewModelScope.launch {
+            coinManager.wishes.collect { wishes ->
+                _uiState.update { it.copy(totalWishes = wishes) }
+            }
+        }
+    }
+
+    fun convertCoinsToWishes(wishesToBuy: Int) {
+        val cost = wishesToBuy * 95000
+        if (cost > 0 && _uiState.value.totalCoins >= cost) {
+            coinManager.removeCoins(cost)
+            coinManager.addWishes(wishesToBuy)
         }
     }
 
@@ -78,9 +88,7 @@ class HabitDetailViewModel(
     }
 
     private fun awardCoins(amount: Int) {
-        if (amount > 0) {
-            coinManager.addCoins(amount)
-        }
+        if (amount > 0) coinManager.addCoins(amount)
     }
 
     private fun restoreState() {
@@ -94,7 +102,6 @@ class HabitDetailViewModel(
 
             if (diffSeconds <= 0) {
                 creditSeconds(totalSec)
-                // Offline brainrot calculation (avg ~3 coins per sec)
                 awardCoins((totalSec * 3).toInt())
 
                 _uiState.update { it.copy(
@@ -132,26 +139,22 @@ class HabitDetailViewModel(
         timerTargetTimeMillis = System.currentTimeMillis() + (remaining * 1000L)
         _uiState.update { it.copy(timerRunning = true) }
         timerStateManager.saveActiveTimer(habitId, timerTargetTimeMillis, _uiState.value.timerTotal)
-
         resumeTimerJob()
     }
 
     private fun processBrainrotDrops(delta: Long) {
         coinAccumulatorMillis += delta
-        // Trigger logic very frequently
         if (coinAccumulatorMillis >= 100L) {
             coinAccumulatorMillis -= 100L
-
             val chance = Random.nextFloat()
             val gain = when {
-                chance > 0.98f -> Random.nextInt(100, 1000) // 2% chance: INSANE JACKPOT
-                chance > 0.85f -> Random.nextInt(10, 50)    // 13% chance: BIG HIT
-                chance > 0.40f -> Random.nextInt(2, 10)     // 45% chance: MULTI
-                else -> 1                                   // 40% chance: SINGLE
+                chance > 0.98f -> Random.nextInt(100, 1000)
+                chance > 0.85f -> Random.nextInt(10, 50)
+                chance > 0.40f -> Random.nextInt(2, 10)
+                else -> 1
             }
-
             awardCoins(gain)
-            _coinEvents.tryEmit(gain) // Instantly blast to the UI
+            _coinEvents.tryEmit(gain)
         }
     }
 
@@ -179,7 +182,7 @@ class HabitDetailViewModel(
                 } else {
                     _uiState.update { it.copy(timerRemaining = diffSeconds) }
                 }
-                delay(16) // ~60 FPS update rate
+                delay(16)
             }
         }
     }
