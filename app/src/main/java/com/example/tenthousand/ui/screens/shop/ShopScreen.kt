@@ -5,6 +5,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,9 +21,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
+import com.example.tenthousand.BuildConfig
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -31,19 +35,18 @@ fun ShopScreen(onBack: () -> Unit) {
 
     var showRewardDialog by remember { mutableStateOf(false) }
     var showCheatDialog by remember { mutableStateOf(false) }
-    var currentReward by remember { mutableStateOf<PullResult?>(null) }
+    var currentRewards by remember { mutableStateOf<List<PullResult>>(emptyList()) }
 
-    val scope = rememberCoroutineScope()
     val flashAlpha = remember { Animatable(0f) }
 
     LaunchedEffect(Unit) {
-        viewModel.pullEvents.collect { result ->
-            scope.launch {
-                flashAlpha.animateTo(1f, tween(100))
-                currentReward = result
-                showRewardDialog = true
-                flashAlpha.animateTo(0f, tween(500))
-            }
+        // Jedan sekvencijalni collect - nema vise scope.launch po eventu,
+        // pa nema race-a izmedju vise pull-ova koji se preklapaju.
+        viewModel.pullEvents.collect { results ->
+            flashAlpha.animateTo(1f, tween(100))
+            currentRewards = results
+            showRewardDialog = true
+            flashAlpha.animateTo(0f, tween(500))
         }
     }
 
@@ -77,14 +80,16 @@ fun ShopScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Long click na ovo otvara cheat meni za promenu pozadine
+                // Long click na ovo otvara cheat meni za promenu pozadine.
+                // Dostupno SAMO u debug build-u (BuildConfig.DEBUG) - u
+                // release APK-u long click ovde ne radi nista.
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .combinedClickable(
                             onClick = {},
-                            onLongClick = { showCheatDialog = true }
+                            onLongClick = { if (BuildConfig.DEBUG) showCheatDialog = true }
                         )
                         .padding(8.dp)
                 ) {
@@ -143,7 +148,7 @@ fun ShopScreen(onBack: () -> Unit) {
             }
         }
 
-        if (showCheatDialog) {
+        if (showCheatDialog && BuildConfig.DEBUG) {
             AlertDialog(
                 onDismissRequest = { showCheatDialog = false },
                 containerColor = Color(0xFF1A1A2E),
@@ -173,26 +178,47 @@ fun ShopScreen(onBack: () -> Unit) {
             Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha.value)))
         }
 
-        if (showRewardDialog && currentReward != null) {
+        if (showRewardDialog && currentRewards.isNotEmpty()) {
             AlertDialog(
                 onDismissRequest = { showRewardDialog = false },
                 containerColor = Color(0xFF1A1A2E),
-                title = { Text("Reward Received!", color = Color.White, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (currentRewards.size > 1) "${currentRewards.size} Rewards Received!" else "Reward Received!",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 text = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        when (val r = currentReward) {
-                            is PullResult.Background -> {
-                                Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFFFFD700), modifier = Modifier.size(64.dp))
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(r.name, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                                Text("New Background Unlocked!", color = Color.Green)
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 64.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.heightIn(max = 240.dp).fillMaxWidth()
+                    ) {
+                        items(currentRewards) { r ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                when (r) {
+                                    is PullResult.Background -> {
+                                        Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFFFFD700), modifier = Modifier.size(40.dp))
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            r.name,
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Black,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2
+                                        )
+                                    }
+                                    is PullResult.ColorReward -> {
+                                        Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(r.colorInt)))
+                                    }
+                                }
                             }
-                            is PullResult.ColorReward -> {
-                                Box(modifier = Modifier.size(64.dp).clip(CircleShape).background(Color(r.colorInt)))
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text("New Habit Color", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            }
-                            null -> {}
                         }
                     }
                 },

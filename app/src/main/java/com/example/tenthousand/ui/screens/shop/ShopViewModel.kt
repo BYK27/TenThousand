@@ -31,7 +31,12 @@ class ShopViewModel(context: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(ShopUiState(availableBackgrounds = gachaManager.availableBackgrounds))
     val uiState = _uiState.asStateFlow()
 
-    private val _pullEvents = MutableSharedFlow<PullResult>()
+    // Emituje CEO batch odjednom (npr. svih 10 rezultata iz jednog Pull 10x-a),
+    // umesto jedan po jedan - stari kod je za x10 pull pravio 10 odvojenih
+    // coroutine-a koje su sve prepisivale isti currentReward/showRewardDialog
+    // state gotovo istovremeno (race condition), pa se realno video samo
+    // poslednji rezultat.
+    private val _pullEvents = MutableSharedFlow<List<PullResult>>()
     val pullEvents = _pullEvents.asSharedFlow()
 
     init {
@@ -61,6 +66,8 @@ class ShopViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             if (_uiState.value.totalWishes < times) return@launch
 
+            val results = mutableListOf<PullResult>()
+
             for (i in 0 until times) {
                 coinManager.addWishes(-1)
 
@@ -73,7 +80,7 @@ class ShopViewModel(context: Context) : ViewModel() {
                     val bg = _uiState.value.dailyBackground
                     gachaManager.unlockBackground(bg)
                     gachaManager.resetPity()
-                    _pullEvents.emit(PullResult.Background(bg))
+                    results.add(PullResult.Background(bg))
                     break
                 } else {
                     val r = Random.nextInt(100, 256)
@@ -82,8 +89,12 @@ class ShopViewModel(context: Context) : ViewModel() {
                     val newColor = Color(r, g, b).toArgb()
 
                     gachaManager.unlockColor(newColor)
-                    _pullEvents.emit(PullResult.ColorReward(newColor))
+                    results.add(PullResult.ColorReward(newColor))
                 }
+            }
+
+            if (results.isNotEmpty()) {
+                _pullEvents.emit(results)
             }
         }
     }

@@ -18,8 +18,8 @@ import androidx.compose.ui.graphics.ShaderBrush
 
 // ============================================================
 // AGSL shader (API 33+). Jedan shader program, mode-uniform bira
-// koji se pattern crta. Sve u float/float2/float3/float4 - namerno
-// bez mešanja sa "half" tipovima, da izbegnemo rizik od
+// koji se od 10 pattern-a crta. Sve u float/float2/float3/float4 -
+// namerno bez mešanja sa "half" tipovima, da izbegnemo rizik od
 // type-mismatch grešaka pri kompajliranju shadera na uređaju.
 // Bez petlji po pikselu (nema fBM/octave noise-a) - svaki pattern
 // je jeftin analitički izraz, da GPU ne radi više nego što mora.
@@ -103,6 +103,52 @@ float4 crystalPrism(float2 uv, float t) {
     return float4(col, 1.0);
 }
 
+float4 solarFlare(float2 uv, float t) {
+    float2 p = uv - 0.5;
+    float angle = atan(p.y, p.x);
+    float r = length(p) * 2.0;
+    float rays = 0.5 + 0.5 * cos(angle * 10.0 + sin(t * 0.3) * 2.0);
+    float core = clamp(1.0 - r, 0.0, 1.0);
+    float glow = rays * core * core;
+    float3 col = mix(colorC, colorA, clamp(1.0 - r * 0.8, 0.0, 1.0));
+    col = mix(col, colorB, glow);
+    return float4(col, 1.0);
+}
+
+float4 inkDrift(float2 uv, float t) {
+    float w1 = sin(uv.x * 3.0 + uv.y * 2.0 + t * 0.25);
+    float w2 = sin(uv.x * 2.0 - uv.y * 3.5 - t * 0.18);
+    float blend = 0.5 + 0.5 * sin((w1 + w2) * 1.5 + t * 0.1);
+    float3 col = mix(colorA, colorB, blend);
+    col = mix(col, colorC, 0.5 + 0.5 * sin(uv.y * 4.0 - t * 0.2));
+    return float4(col, 1.0);
+}
+
+float4 voidRipple(float2 uv, float t) {
+    float2 p = uv - 0.5;
+    float r = length(p);
+    float wave = sin(r * 22.0 - t * 1.4);
+    float ring = smoothstep(0.15, 1.0, 0.5 + 0.5 * wave) * (1.0 - clamp(r * 1.4, 0.0, 1.0));
+    float3 col = mix(colorC, colorA, clamp(r * 1.4, 0.0, 1.0));
+    col = mix(col, colorB, ring);
+    return float4(col, 1.0);
+}
+
+float4 emberDrift(float2 uv, float t) {
+    float2 p = uv * float2(resolution.x / max(resolution.y, 1.0), 1.0) * 16.0;
+    p.y -= t * 1.0;
+    float2 cell = floor(p);
+    float2 f = fract(p) - 0.5;
+    float ember = hash21(cell);
+    float flicker = 0.6 + 0.4 * sin(t * 3.0 + ember * 20.0);
+    float sz = (0.04 + ember * 0.1) * flicker;
+    float d = length(f);
+    float glow = smoothstep(sz, 0.0, d) * step(0.5, ember);
+    float3 col = mix(colorC, colorA, uv.y);
+    col = mix(col, colorB, glow);
+    return float4(col, 1.0);
+}
+
 float4 main(float2 fragCoord) {
     float2 uv = fragCoord / resolution;
     float t = time;
@@ -111,7 +157,11 @@ float4 main(float2 fragCoord) {
     if (mode == 2) return cyberGrid(uv, t);
     if (mode == 3) return quantumPulse(uv, t);
     if (mode == 4) return starfall(uv, t);
-    return crystalPrism(uv, t);
+    if (mode == 5) return crystalPrism(uv, t);
+    if (mode == 6) return solarFlare(uv, t);
+    if (mode == 7) return inkDrift(uv, t);
+    if (mode == 8) return voidRipple(uv, t);
+    return emberDrift(uv, t);
 }
 """
 
@@ -128,22 +178,19 @@ private fun specFor(name: String): BgSpec? = when (name) {
     "Quantum Pulse" -> BgSpec(3, Color(0xFFFF0055), Color(0xFFFFFFFF), Color(0xFF0A0010))
     "Starfall" -> BgSpec(4, Color(0xFFFFE082), Color(0xFF82B1FF), Color(0xFF02020A))
     "Crystal Prism" -> BgSpec(5, Color(0xFFE0FFFF), Color(0xFF66CCFF), Color(0xFFFFFFFF))
+    "Solar Flare" -> BgSpec(6, Color(0xFFFFD54F), Color(0xFFFF6D00), Color(0xFF1A0800))
+    "Ink Drift" -> BgSpec(7, Color(0xFF4A148C), Color(0xFF00838F), Color(0xFF120024))
+    "Void Ripple" -> BgSpec(8, Color(0xFF1A237E), Color(0xFF64FFDA), Color(0xFF00050F))
+    "Ember Drift" -> BgSpec(9, Color(0xFFFFAB40), Color(0xFFFF3D00), Color(0xFF0A0400))
     else -> null
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun MagicalBackground(name: String) {
-    // RuntimeShader i ShaderBrush se prave samo jednom (jedan
-    // compile po ulasku u kompoziciju) i reuse-uju se za sve
-    // frejmove i sve promene pozadine - nema alokacija po frejmu.
     val shader = remember { RuntimeShader(MAGIC_SHADER_SRC) }
     val brush = remember(shader) { ShaderBrush(shader) }
 
-    // Kontinualno vreme u sekundama preko withFrameNanos, bez
-    // Compose animateFloat/tween ciklusa koji se resetuje na 0 -
-    // nema "skoka" na kraju perioda i nema množenja koje bi
-    // ubrzalo osciliranje (uzrok jitter-a u staroj verziji).
     var timeSeconds by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         val startNanos = withFrameNanos { it }
@@ -167,8 +214,7 @@ fun MagicalBackground(name: String) {
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         // Ovo je jedino što se menja po frejmu - dve jeftine native
-        // pozive, bez alokacije novih objekata (za razliku od stare
-        // verzije koja je pravila novi Brush/List<Color> 60x/sek).
+        // pozive, bez alokacije novih objekata.
         shader.setFloatUniform("resolution", size.width, size.height)
         shader.setFloatUniform("time", timeSeconds)
         drawRect(brush)

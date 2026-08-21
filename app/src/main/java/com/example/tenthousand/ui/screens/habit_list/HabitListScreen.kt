@@ -9,12 +9,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -31,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.tenthousand.BuildConfig
 import com.example.tenthousand.data.local.dao.HabitDao
 import java.text.NumberFormat
 import java.util.Locale
@@ -40,6 +40,34 @@ val defaultHabitColors = listOf(
     Color(0xFFFF9800), Color(0xFF4CAF50), Color(0xFF009688),
     Color(0xFF2196F3), Color(0xFF3F51B5)
 )
+
+// Redosled kategorija kojim se prikazuju u editoru (prazne kategorije se preskacu).
+private val colorCategoryOrder = listOf("Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink", "Neutral")
+
+private fun categoryForColor(colorInt: Int): String {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(colorInt, hsv)
+    val hue = hsv[0]
+    val saturation = hsv[1]
+    if (saturation < 0.15f) return "Neutral"
+    return when {
+        hue < 15f || hue >= 345f -> "Red"
+        hue < 45f -> "Orange"
+        hue < 70f -> "Yellow"
+        hue < 170f -> "Green"
+        hue < 200f -> "Cyan"
+        hue < 260f -> "Blue"
+        hue < 290f -> "Purple"
+        else -> "Pink"
+    }
+}
+
+private fun categorizeColors(colors: List<Int>): List<Pair<String, List<Int>>> {
+    val grouped = colors.groupBy { categoryForColor(it) }
+    return colorCategoryOrder.mapNotNull { category ->
+        grouped[category]?.let { category to it }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -101,7 +129,10 @@ fun HabitListScreen(
                             .clip(RoundedCornerShape(8.dp))
                             .combinedClickable(
                                 onClick = {},
-                                onLongClick = { showCheatDialog = true }
+                                // Cheat meni je dostupan SAMO u debug build-u.
+                                // U release APK-u (BuildConfig.DEBUG == false)
+                                // dugi pritisak ovde ne radi nista.
+                                onLongClick = { if (BuildConfig.DEBUG) showCheatDialog = true }
                             )
                             .padding(8.dp)
                     ) {
@@ -151,7 +182,7 @@ fun HabitListScreen(
         }
     }
 
-    if (showCheatDialog) {
+    if (showCheatDialog && BuildConfig.DEBUG) {
         DeveloperCheatDialog(
             onAddCoins = { viewModel.addCheatCoins(it) },
             onAddWishes = { viewModel.addCheatWishes(it) },
@@ -257,6 +288,8 @@ fun HabitEditorDialog(
     var selectedColor by remember { mutableIntStateOf(initialColor) }
     var selectedBackground by remember { mutableStateOf(initialBackground) }
 
+    val colorCategories = remember(availableColors) { categorizeColors(availableColors) }
+
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(title) },
@@ -268,22 +301,36 @@ fun HabitEditorDialog(
                 Text("Theme Color (${availableColors.size} Unlocked)", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // The new highly responsive Color Grid UX
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 40.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.heightIn(max = 140.dp).fillMaxWidth()
+                // Boje grupisane po nijansi (Red, Orange, Yellow, ...) umesto
+                // jedne ravne mreže - lakše je pronaći boju kad ih ima puno
+                // (nakon gacha pull-ova).
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 200.dp)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    items(availableColors) { colorInt ->
-                        val color = Color(colorInt)
-                        val isSelected = colorInt == selectedColor
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp).clip(CircleShape).background(color)
-                                .border(width = if (isSelected) 3.dp else 0.dp, color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent, shape = CircleShape)
-                                .clickable { selectedColor = colorInt }
+                    colorCategories.forEach { (category, colors) ->
+                        Text(
+                            text = category,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(colors) { colorInt ->
+                                val color = Color(colorInt)
+                                val isSelected = colorInt == selectedColor
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp).clip(CircleShape).background(color)
+                                        .border(width = if (isSelected) 3.dp else 0.dp, color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent, shape = CircleShape)
+                                        .clickable { selectedColor = colorInt }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
 

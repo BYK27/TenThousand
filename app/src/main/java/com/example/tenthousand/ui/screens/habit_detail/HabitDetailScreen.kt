@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -23,15 +24,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,6 +46,7 @@ import kotlin.math.sin
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun HabitDetailScreen(
     habitId: Long,
@@ -354,18 +354,26 @@ fun FocusVFX(isRunning: Boolean, themeColor: Color) {
     }
 }
 
+// BrainrotText polja su sad `val` (nepromenljiva) - pozicija/rotacija/alpha
+// se racunaju kinematicki iz `progress` (Animatable), umesto da se rucno
+// mutiraju svaki frejm. Stari kod je menjao plain `var` polja na objektu u
+// SnapshotStateList-i; te mutacije Compose UOPSTE ne vidi (nisu State), pa se
+// offset/rotate/alpha modifier ponovo racunao samo kad bi NEKA druga,
+// nepovezana rekompozicija (npr. otkucaj tajmera svake sekunde) slucajno
+// prodrmala stablo - vizuelno je to izgledalo kao da brojevi "skacu" umesto
+// da glatko lete. Animatable ispravno okida Compose-ov animacioni clock
+// svaki frejm dok animacija traje.
 private data class BrainrotText(
     val id: Long,
     val text: String,
     val isJackpot: Boolean,
-    var x: Float = 0f,
-    var y: Float = 0f,
-    var vx: Float = Random.nextFloat() * 800f - 400f,
-    var vy: Float = Random.nextFloat() * -600f - 200f,
-    var rotation: Float = Random.nextFloat() * 60f - 30f,
-    var rotVelocity: Float = Random.nextFloat() * 200f - 100f,
-    var life: Float = 1.2f,
-    val maxLife: Float = 1.2f
+    val x0: Float = 0f,
+    val y0: Float = 0f,
+    val vx: Float = Random.nextFloat() * 800f - 400f,
+    val vy: Float = Random.nextFloat() * -600f - 200f,
+    val rotation0: Float = Random.nextFloat() * 60f - 30f,
+    val rotVelocity: Float = Random.nextFloat() * 200f - 100f,
+    val lifeSeconds: Float = 1.2f
 )
 
 @Composable
@@ -387,43 +395,47 @@ fun BrainrotCoinOverlay(coinEvents: SharedFlow<Int>) {
         }
     }
 
-    LaunchedEffect(Unit) {
-        var lastFrame = System.nanoTime()
-        while (true) {
-            withFrameNanos { frameTime ->
-                val dt = (frameTime - lastFrame) / 1_000_000_000f
-                lastFrame = frameTime
-
-                val iterator = popups.iterator()
-                while (iterator.hasNext()) {
-                    val p = iterator.next()
-                    p.life -= dt
-
-                    p.vy += 1200f * dt
-                    p.x += p.vx * dt
-                    p.y += p.vy * dt
-                    p.rotation += p.rotVelocity * dt
-
-                    if (p.life <= 0f) iterator.remove()
-                }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        popups.forEach { p ->
+            // key() osigurava da svaki popup zadrzi SVOJ Animatable cak i kad
+            // se lista menja (dodaju/uklanjaju stavke) - bez ovoga Compose bi
+            // mogao da pomesa animaciono stanje izmedju popup-a na istoj poziciji.
+            key(p.id) {
+                BrainrotPopup(popup = p, onFinished = { popups.remove(p) })
             }
         }
     }
+}
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        popups.forEach { p ->
-            Text(
-                text = p.text,
-                color = if (p.isJackpot) Color.Red else Color(0xFFFFD700),
-                fontSize = if (p.isJackpot) 64.sp else 32.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier
-                    .offset { IntOffset(p.x.toInt(), p.y.toInt()) }
-                    .rotate(p.rotation)
-                    .alpha((p.life / p.maxLife).coerceIn(0f, 1f))
-            )
-        }
+@Composable
+private fun BrainrotPopup(popup: BrainrotText, onFinished: () -> Unit) {
+    val progress = remember { Animatable(0f) }
+
+    LaunchedEffect(popup.id) {
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = (popup.lifeSeconds * 1000).toInt(), easing = LinearEasing)
+        )
+        onFinished()
     }
+
+    Text(
+        text = popup.text,
+        color = if (popup.isJackpot) Color.Red else Color(0xFFFFD700),
+        fontSize = if (popup.isJackpot) 64.sp else 32.sp,
+        fontWeight = FontWeight.Black,
+        modifier = Modifier.graphicsLayer {
+            // graphicsLayer{} lambda se cita u draw/layer fazi, ne u
+            // kompoziciji - update pozicije/rotacije/alfa svakog frejma NE
+            // pokrece rekompoziciju, samo jeftin update kompozitorskog sloja.
+            val t = progress.value * popup.lifeSeconds
+            val gravity = 1200f
+            translationX = popup.x0 + popup.vx * t
+            translationY = popup.y0 + popup.vy * t + 0.5f * gravity * t * t
+            rotationZ = popup.rotation0 + popup.rotVelocity * t
+            alpha = (1f - progress.value).coerceIn(0f, 1f)
+        }
+    )
 }
 
 @Composable

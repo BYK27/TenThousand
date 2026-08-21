@@ -12,7 +12,8 @@ class GachaManager private constructor(context: Context) {
 
     val availableBackgrounds = listOf(
         "Galactic Nebula", "Aurora Flow", "Cyber Grid",
-        "Quantum Pulse", "Starfall", "Crystal Prism"
+        "Quantum Pulse", "Starfall", "Crystal Prism",
+        "Solar Flare", "Ink Drift", "Void Ripple", "Ember Drift"
     )
 
     private val _pityCounter = MutableStateFlow(prefs.getInt("PITY", 0))
