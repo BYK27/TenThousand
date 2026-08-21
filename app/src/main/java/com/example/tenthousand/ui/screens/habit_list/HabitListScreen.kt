@@ -14,7 +14,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,10 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tenthousand.data.local.dao.HabitDao
+import java.text.NumberFormat
+import java.util.Locale
 
 val habitColors = listOf(
     Color(0xFF6650a4), Color(0xFFE91E63), Color(0xFFF44336),
@@ -33,14 +38,16 @@ val habitColors = listOf(
     Color(0xFF2196F3), Color(0xFF3F51B5)
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HabitListScreen(
     dao: HabitDao,
     onOpenHabit: (Long) -> Unit,
     onOpenShop: () -> Unit
 ) {
+    val context = LocalContext.current.applicationContext
     val viewModel: HabitListViewModel = viewModel(
-        factory = HabitListViewModelFactory(dao)
+        factory = HabitListViewModelFactory(dao, context)
     )
 
     val state by viewModel.uiState.collectAsState()
@@ -48,6 +55,7 @@ fun HabitListScreen(
 
     var selectedHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var showOptionsDialog by remember { mutableStateOf(false) }
+    var showCheatDialog by remember { mutableStateOf(false) }
 
     val totalSecondsAllHabits = state.habits.sumOf { it.totalSeconds }
 
@@ -62,19 +70,68 @@ fun HabitListScreen(
             }
         }
     ) { innerPadding ->
-        // Wrap in Box to position Shop FAB on bottom left
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
-                Text(
-                    text = "My Habits",
-                    style = MaterialTheme.typography.displayMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "My Habits",
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+
+                    // Long click for Developer Cheats
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = { showCheatDialog = true }
+                            )
+                            .padding(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = "Coins",
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = NumberFormat.getNumberInstance(Locale.US).format(state.totalCoins),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFFFD700)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Wishes",
+                                tint = Color(0xFFB388FF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = NumberFormat.getNumberInstance(Locale.US).format(state.totalWishes),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFB388FF)
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -103,7 +160,6 @@ fun HabitListScreen(
                 }
             }
 
-            // Bottom Left Shop FAB
             FloatingActionButton(
                 onClick = onOpenShop,
                 containerColor = MaterialTheme.colorScheme.tertiary,
@@ -115,6 +171,14 @@ fun HabitListScreen(
                 Icon(Icons.Default.ShoppingCart, contentDescription = "Shop")
             }
         }
+    }
+
+    if (showCheatDialog) {
+        DeveloperCheatDialog(
+            onAddCoins = { viewModel.addCheatCoins(it) },
+            onAddWishes = { viewModel.addCheatWishes(it) },
+            onDismiss = { showCheatDialog = false }
+        )
     }
 
     if (showAddDialog) {
@@ -146,6 +210,52 @@ fun HabitListScreen(
             }
         )
     }
+}
+
+@Composable
+fun DeveloperCheatDialog(
+    onAddCoins: (Int) -> Unit,
+    onAddWishes: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var coinsInput by remember { mutableStateOf("1000000") }
+    var wishesInput by remember { mutableStateOf("100") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Developer Cheats", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = coinsInput,
+                    onValueChange = { coinsInput = it.filter { c -> c.isDigit() } },
+                    label = { Text("Add Coins") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = wishesInput,
+                    onValueChange = { wishesInput = it.filter { c -> c.isDigit() } },
+                    label = { Text("Add Wishes") },
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val c = coinsInput.toIntOrNull() ?: 0
+                    val w = wishesInput.toIntOrNull() ?: 0
+                    if (c > 0) onAddCoins(c)
+                    if (w > 0) onAddWishes(w)
+                    onDismiss()
+                }
+            ) { Text("HACK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

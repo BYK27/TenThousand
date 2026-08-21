@@ -89,7 +89,6 @@ fun HabitDetailScreen(
 
                 // Currencies Container
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Coins Display
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.Star,
@@ -108,7 +107,6 @@ fun HabitDetailScreen(
 
                     Spacer(modifier = Modifier.width(16.dp))
 
-                    // Wishes Display (Clickable)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -188,26 +186,44 @@ fun WishConversionDialog(
         },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Exchange Rate: 95,000 💰 = 1 🌠",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                )
+                // Emoji-less Exchange Rate Display
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Exchange Rate: 95,000",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(16.dp).padding(horizontal = 4.dp))
+                    Text(
+                        text = "= 1",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFFB388FF), modifier = Modifier.size(16.dp).padding(start = 4.dp))
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Text(
-                    text = "$selectedWishes 🌠",
-                    style = MaterialTheme.typography.displayMedium,
-                    fontWeight = FontWeight.Black,
-                    color = Color(0xFFB388FF)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "$selectedWishes",
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color(0xFFB388FF)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFFB388FF), modifier = Modifier.size(40.dp))
+                }
 
-                Text(
-                    text = "Cost: ${NumberFormat.getNumberInstance(Locale.US).format(cost)} 💰",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                    Text(
+                        text = "Cost: ${NumberFormat.getNumberInstance(Locale.US).format(cost)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.Star, contentDescription = null, tint = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(20.dp))
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -244,7 +260,6 @@ fun WishConversionDialog(
     )
 }
 
-// Particle Physics structure
 private data class Particle(
     var x: Float, var y: Float,
     var vx: Float, var vy: Float,
@@ -350,7 +365,8 @@ fun BrainrotCoinOverlay(coinEvents: SharedFlow<Int>) {
     LaunchedEffect(Unit) {
         coinEvents.collect { amount ->
             val isJackpot = amount >= 100
-            val prefix = if (isJackpot) listOf("💰", "🚀", "🤯", "💎").random() else ""
+            // Emoji-less aggressive text prefixes
+            val prefix = if (isJackpot) listOf("JACKPOT ", "MEGA ", "CRAZY ", "INSANE ").random() else ""
 
             popups.add(
                 BrainrotText(
