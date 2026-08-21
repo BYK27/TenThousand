@@ -10,7 +10,10 @@ import kotlin.random.Random
 class GachaManager private constructor(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("gacha_prefs", Context.MODE_PRIVATE)
 
-    val availableBackgrounds = listOf("Galactic Nebula", "Cyber Rain", "Mystic Aura")
+    val availableBackgrounds = listOf(
+        "Galactic Nebula", "Aurora Flow", "Cyber Grid",
+        "Quantum Pulse", "Starfall", "Crystal Prism"
+    )
 
     private val _pityCounter = MutableStateFlow(prefs.getInt("PITY", 0))
     val pityCounter: StateFlow<Int> = _pityCounter.asStateFlow()
