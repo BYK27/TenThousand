@@ -1,41 +1,173 @@
 package com.example.tenthousand.ui.screens.shop
 
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShopScreen(onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("The Shop", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    val context = LocalContext.current
+    val viewModel = remember { ShopViewModel(context) }
+    val ui by viewModel.uiState.collectAsState()
+
+    var showRewardDialog by remember { mutableStateOf(false) }
+    var currentReward by remember { mutableStateOf<PullResult?>(null) }
+
+    val scope = rememberCoroutineScope()
+    val flashAlpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        viewModel.pullEvents.collect { result ->
+            scope.launch {
+                flashAlpha.animateTo(1f, tween(100))
+                currentReward = result
+                showRewardDialog = true
+                flashAlpha.animateTo(0f, tween(500))
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Daily Background Preview
+        if (ui.dailyBackground.isNotEmpty()) {
+            MagicalBackground(ui.dailyBackground)
+        }
+
+        // Dark Overlay for UI contrast
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top Bar
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 16.dp, end = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(Color.Black.copy(0.5f), RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "Wishes", tint = Color(0xFFB388FF), modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("${ui.totalWishes}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color(0xFFB388FF))
+                }
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Banner Info
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "DAILY FEATURED",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White.copy(alpha = 0.7f),
+                    letterSpacing = 4.sp
+                )
+                Text(
+                    text = ui.dailyBackground.uppercase(),
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+
+                if (ui.isDailyOwned) {
+                    Text("✓ OWNED", color = Color.Green, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Pity Tracker
+                LinearProgressIndicator(
+                    progress = { ui.pityCounter / 90f },
+                    modifier = Modifier.fillMaxWidth(0.8f).height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = Color(0xFFB388FF),
+                    trackColor = Color.White.copy(alpha = 0.2f)
+                )
+                Text(
+                    text = "Pity: ${ui.pityCounter} / 90",
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Action Buttons
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Button(
+                        onClick = { viewModel.pullWish(1) },
+                        enabled = ui.totalWishes >= 1 && !ui.isDailyOwned,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.2f)),
+                        modifier = Modifier.height(56.dp).weight(1f).padding(end = 8.dp)
+                    ) {
+                        Text("Pull 1x", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { viewModel.pullWish(10) },
+                        enabled = ui.totalWishes >= 10 && !ui.isDailyOwned,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB388FF)),
+                        modifier = Modifier.height(56.dp).weight(1f).padding(start = 8.dp)
+                    ) {
+                        Text("Pull 10x", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
-            )
+            }
         }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Shop System Coming Soon\n(Brainrot in progress...)",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+
+        // Pull Flash Overlay
+        if (flashAlpha.value > 0f) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha.value)))
+        }
+
+        // Reward Dialog
+        if (showRewardDialog && currentReward != null) {
+            AlertDialog(
+                onDismissRequest = { showRewardDialog = false },
+                containerColor = Color(0xFF1A1A2E),
+                title = { Text("Reward Received!", color = Color.White, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        when (val r = currentReward) {
+                            is PullResult.Background -> {
+                                Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFFFFD700), modifier = Modifier.size(64.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(r.name, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                                Text("New Background Unlocked!", color = Color.Green)
+                            }
+                            is PullResult.ColorReward -> {
+                                Box(modifier = Modifier.size(64.dp).clip(CircleShape).background(Color(r.colorInt)))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("New Habit Color", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            }
+                            null -> {}
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { showRewardDialog = false }) { Text("Awesome") }
+                }
             )
         }
     }

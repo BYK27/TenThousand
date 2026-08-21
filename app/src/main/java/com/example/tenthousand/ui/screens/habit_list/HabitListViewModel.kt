@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
 import com.example.tenthousand.util.CoinManager
+import com.example.tenthousand.util.GachaManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -13,7 +14,8 @@ data class HabitListUiState(
     val habits: List<HabitEntity> = emptyList(),
     val isLoading: Boolean = true,
     val totalCoins: Int = 0,
-    val totalWishes: Int = 0
+    val totalWishes: Int = 0,
+    val unlockedColors: Set<Int> = emptySet()
 )
 
 class HabitListViewModel(
@@ -21,13 +23,16 @@ class HabitListViewModel(
     context: Context
 ) : ViewModel() {
 
-    private val coinManager = CoinManager(context)
+    private val coinManager = CoinManager.getInstance(context)
+    private val gachaManager = GachaManager.getInstance(context)
+
     private val _uiState = MutableStateFlow(HabitListUiState())
     val uiState = _uiState.asStateFlow()
 
     init {
         observeHabits()
         observeCurrencies()
+        observeGacha()
     }
 
     private fun observeHabits() {
@@ -51,6 +56,14 @@ class HabitListViewModel(
         }
     }
 
+    private fun observeGacha() {
+        viewModelScope.launch {
+            gachaManager.unlockedColors.collect { colors ->
+                _uiState.update { it.copy(unlockedColors = colors) }
+            }
+        }
+    }
+
     fun createHabit(name: String, color: Int) {
         viewModelScope.launch {
             dao.insert(HabitEntity(name = name, totalSeconds = 0, color = color))
@@ -70,12 +83,6 @@ class HabitListViewModel(
         }
     }
 
-    // --- Developer Cheats ---
-    fun addCheatCoins(amount: Int) {
-        coinManager.addCoins(amount)
-    }
-
-    fun addCheatWishes(amount: Int) {
-        coinManager.addWishes(amount)
-    }
+    fun addCheatCoins(amount: Int) = coinManager.addCoins(amount)
+    fun addCheatWishes(amount: Int) = coinManager.addWishes(amount)
 }

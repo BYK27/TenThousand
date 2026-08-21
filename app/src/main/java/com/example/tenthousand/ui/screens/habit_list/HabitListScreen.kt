@@ -32,7 +32,7 @@ import com.example.tenthousand.data.local.dao.HabitDao
 import java.text.NumberFormat
 import java.util.Locale
 
-val habitColors = listOf(
+val defaultHabitColors = listOf(
     Color(0xFF6650a4), Color(0xFFE91E63), Color(0xFFF44336),
     Color(0xFFFF9800), Color(0xFF4CAF50), Color(0xFF009688),
     Color(0xFF2196F3), Color(0xFF3F51B5)
@@ -58,6 +58,11 @@ fun HabitListScreen(
     var showCheatDialog by remember { mutableStateOf(false) }
 
     val totalSecondsAllHabits = state.habits.sumOf { it.totalSeconds }
+
+    // Combine defaults with unlocked gacha colors
+    val allColors = remember(state.unlockedColors) {
+        defaultHabitColors.map { it.toArgb() } + state.unlockedColors.toList()
+    }
 
     Scaffold(
         floatingActionButton = {
@@ -88,7 +93,6 @@ fun HabitListScreen(
                         color = MaterialTheme.colorScheme.onBackground
                     )
 
-                    // Long click for Developer Cheats
                     Column(
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier
@@ -100,47 +104,21 @@ fun HabitListScreen(
                             .padding(8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = "Coins",
-                                tint = Color(0xFFFFD700),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700), modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = NumberFormat.getNumberInstance(Locale.US).format(state.totalCoins),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFFFFD700)
-                            )
+                            Text(NumberFormat.getNumberInstance(Locale.US).format(state.totalCoins), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color(0xFFFFD700))
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Wishes",
-                                tint = Color(0xFFB388FF),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFFB388FF), modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = NumberFormat.getNumberInstance(Locale.US).format(state.totalWishes),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFFB388FF)
-                            )
+                            Text(NumberFormat.getNumberInstance(Locale.US).format(state.totalWishes), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color(0xFFB388FF))
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Total Focus Time: ${formatSleekTotal(totalSecondsAllHabits)}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                )
-
+                Text("Total Focus Time: ${formatSleekTotal(totalSecondsAllHabits)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                 Spacer(modifier = Modifier.height(32.dp))
 
                 LazyColumn(
@@ -164,9 +142,7 @@ fun HabitListScreen(
                 onClick = onOpenShop,
                 containerColor = MaterialTheme.colorScheme.tertiary,
                 contentColor = MaterialTheme.colorScheme.onTertiary,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 24.dp, bottom = 16.dp)
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 16.dp)
             ) {
                 Icon(Icons.Default.ShoppingCart, contentDescription = "Shop")
             }
@@ -184,7 +160,8 @@ fun HabitListScreen(
     if (showAddDialog) {
         HabitEditorDialog(
             initialName = "",
-            initialColor = habitColors[0].toArgb(),
+            initialColor = allColors.firstOrNull() ?: defaultHabitColors[0].toArgb(),
+            availableColors = allColors,
             title = "New Habit",
             onConfirm = { name, color ->
                 viewModel.createHabit(name, color)
@@ -198,6 +175,7 @@ fun HabitListScreen(
         HabitEditorDialog(
             initialName = selectedHabit!!.name,
             initialColor = selectedHabit!!.color,
+            availableColors = allColors,
             title = "Edit Habit",
             onConfirm = { name, color ->
                 viewModel.updateHabit(selectedHabit!!.id, name, color)
@@ -213,11 +191,7 @@ fun HabitListScreen(
 }
 
 @Composable
-fun DeveloperCheatDialog(
-    onAddCoins: (Int) -> Unit,
-    onAddWishes: (Int) -> Unit,
-    onDismiss: () -> Unit
-) {
+fun DeveloperCheatDialog(onAddCoins: (Int) -> Unit, onAddWishes: (Int) -> Unit, onDismiss: () -> Unit) {
     var coinsInput by remember { mutableStateOf("1000000") }
     var wishesInput by remember { mutableStateOf("100") }
 
@@ -226,35 +200,21 @@ fun DeveloperCheatDialog(
         title = { Text("Developer Cheats", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error) },
         text = {
             Column {
-                OutlinedTextField(
-                    value = coinsInput,
-                    onValueChange = { coinsInput = it.filter { c -> c.isDigit() } },
-                    label = { Text("Add Coins") },
-                    singleLine = true
-                )
+                OutlinedTextField(value = coinsInput, onValueChange = { coinsInput = it.filter { c -> c.isDigit() } }, label = { Text("Add Coins") }, singleLine = true)
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = wishesInput,
-                    onValueChange = { wishesInput = it.filter { c -> c.isDigit() } },
-                    label = { Text("Add Wishes") },
-                    singleLine = true
-                )
+                OutlinedTextField(value = wishesInput, onValueChange = { wishesInput = it.filter { c -> c.isDigit() } }, label = { Text("Add Wishes") }, singleLine = true)
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val c = coinsInput.toIntOrNull() ?: 0
-                    val w = wishesInput.toIntOrNull() ?: 0
-                    if (c > 0) onAddCoins(c)
-                    if (w > 0) onAddWishes(w)
-                    onDismiss()
-                }
-            ) { Text("HACK") }
+            Button(onClick = {
+                val c = coinsInput.toIntOrNull() ?: 0
+                val w = wishesInput.toIntOrNull() ?: 0
+                if (c > 0) onAddCoins(c)
+                if (w > 0) onAddWishes(w)
+                onDismiss()
+            }) { Text("HACK") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 
@@ -262,41 +222,22 @@ fun DeveloperCheatDialog(
 @Composable
 fun HabitRow(habit: HabitEntity, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(end = 16.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(end = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .width(8.dp)
-                    .height(64.dp)
-                    .background(Color(habit.color))
-            )
+            Box(modifier = Modifier.width(8.dp).height(64.dp).background(Color(habit.color)))
             Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                text = habit.name,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Medium
-            )
+            Text(text = habit.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
         }
-
-        Text(
-            text = formatSleekTotal(habit.totalSeconds),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text(text = formatSleekTotal(habit.totalSeconds), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 fun HabitEditorDialog(
-    initialName: String, initialColor: Int, title: String,
+    initialName: String, initialColor: Int, availableColors: List<Int>, title: String,
     onConfirm: (String, Int) -> Unit, onCancel: () -> Unit, onDelete: (() -> Unit)? = null
 ) {
     var name by remember { mutableStateOf(initialName) }
@@ -307,48 +248,29 @@ fun HabitEditorDialog(
         title = { Text(title) },
         text = {
             Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    placeholder = { Text("e.g. Reading") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                OutlinedTextField(value = name, onValueChange = { name = it }, placeholder = { Text("e.g. Reading") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("Theme Color", style = MaterialTheme.typography.bodySmall)
+                Text("Theme Color (${availableColors.size} Unlocked)", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(habitColors) { color ->
-                        val isSelected = color.toArgb() == selectedColor
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    items(availableColors) { colorInt ->
+                        val color = Color(colorInt)
+                        val isSelected = colorInt == selectedColor
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .border(
-                                    width = if (isSelected) 3.dp else 0.dp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedColor = color.toArgb() }
+                                .size(40.dp).clip(CircleShape).background(color)
+                                .border(width = if (isSelected) 3.dp else 0.dp, color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent, shape = CircleShape)
+                                .clickable { selectedColor = colorInt }
                         )
                     }
                 }
             }
         },
-        confirmButton = {
-            Button(onClick = { if (name.isNotBlank()) onConfirm(name.trim(), selectedColor) }) { Text("Save") }
-        },
+        confirmButton = { Button(onClick = { if (name.isNotBlank()) onConfirm(name.trim(), selectedColor) }) { Text("Save") } },
         dismissButton = {
             Row {
-                if (onDelete != null) {
-                    TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
+                if (onDelete != null) { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }; Spacer(modifier = Modifier.width(8.dp)) }
                 TextButton(onClick = onCancel) { Text("Cancel") }
             }
         }
@@ -356,8 +278,7 @@ fun HabitEditorDialog(
 }
 
 fun formatSleekTotal(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
+    val h = seconds / 3600; val m = (seconds % 3600) / 60
     return if (h > 0) "${h}h : ${m}m" else "${m}m"
 }
 

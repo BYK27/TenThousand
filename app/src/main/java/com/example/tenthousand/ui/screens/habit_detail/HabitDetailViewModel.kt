@@ -39,7 +39,9 @@ class HabitDetailViewModel(
     val coinEvents = _coinEvents.asSharedFlow()
 
     private val timerStateManager = TimerStateManager(context)
-    private val coinManager = CoinManager(context)
+
+    // Use the Singleton instance here
+    private val coinManager = CoinManager.getInstance(context)
 
     private var timerJob: Job? = null
     private var timerTargetTimeMillis: Long = 0L
