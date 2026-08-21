@@ -25,13 +25,21 @@ class GachaManager private constructor(context: Context) {
     )
     val unlockedColors: StateFlow<Set<Int>> = _unlockedColors.asStateFlow()
 
-    private val _dailyBackground = MutableStateFlow(calculateDailyBackground())
+    private val _dailyBackground = MutableStateFlow(
+        prefs.getString("CUSTOM_DAILY_BG", null) ?: calculateDailyBackground()
+    )
     val dailyBackground: StateFlow<String> = _dailyBackground.asStateFlow()
 
     private fun calculateDailyBackground(): String {
         val currentDay = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
         val rng = Random(currentDay)
         return availableBackgrounds[rng.nextInt(availableBackgrounds.size)]
+    }
+
+    // --- DEVELOPER CHEAT ZA PROMENU POZADINE ---
+    fun setDailyBackground(bgName: String) {
+        prefs.edit().putString("CUSTOM_DAILY_BG", bgName).apply()
+        _dailyBackground.value = bgName
     }
 
     fun incrementPity() {

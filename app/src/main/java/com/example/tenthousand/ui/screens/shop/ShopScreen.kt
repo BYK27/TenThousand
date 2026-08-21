@@ -1,7 +1,9 @@
 package com.example.tenthousand.ui.screens.shop
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,17 +14,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ShopScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -30,6 +30,7 @@ fun ShopScreen(onBack: () -> Unit) {
     val ui by viewModel.uiState.collectAsState()
 
     var showRewardDialog by remember { mutableStateOf(false) }
+    var showCheatDialog by remember { mutableStateOf(false) }
     var currentReward by remember { mutableStateOf<PullResult?>(null) }
 
     val scope = rememberCoroutineScope()
@@ -47,16 +48,13 @@ fun ShopScreen(onBack: () -> Unit) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Daily Background Preview
         if (ui.dailyBackground.isNotEmpty()) {
             MagicalBackground(ui.dailyBackground)
         }
 
-        // Dark Overlay for UI contrast
         Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top Bar
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 16.dp, end = 24.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -75,23 +73,34 @@ fun ShopScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Banner Info
             Column(
                 modifier = Modifier.fillMaxWidth().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "DAILY FEATURED",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.7f),
-                    letterSpacing = 4.sp
-                )
-                Text(
-                    text = ui.dailyBackground.uppercase(),
-                    style = MaterialTheme.typography.displayMedium,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
-                )
+                // Long click na ovo otvara cheat meni za promenu pozadine
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { showCheatDialog = true }
+                        )
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "DAILY FEATURED",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White.copy(alpha = 0.7f),
+                        letterSpacing = 2.sp
+                    )
+                    Text(
+                        text = ui.dailyBackground.uppercase(),
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                }
 
                 if (ui.isDailyOwned) {
                     Text("✓ OWNED", color = Color.Green, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
@@ -99,7 +108,6 @@ fun ShopScreen(onBack: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Pity Tracker
                 LinearProgressIndicator(
                     progress = { ui.pityCounter / 90f },
                     modifier = Modifier.fillMaxWidth(0.8f).height(8.dp).clip(RoundedCornerShape(4.dp)),
@@ -114,7 +122,6 @@ fun ShopScreen(onBack: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Action Buttons
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Button(
                         onClick = { viewModel.pullWish(1) },
@@ -136,12 +143,36 @@ fun ShopScreen(onBack: () -> Unit) {
             }
         }
 
-        // Pull Flash Overlay
+        if (showCheatDialog) {
+            AlertDialog(
+                onDismissRequest = { showCheatDialog = false },
+                containerColor = Color(0xFF1A1A2E),
+                title = { Text("Change Daily Background", color = Color.White, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        ui.availableBackgrounds.forEach { bgName ->
+                            TextButton(
+                                onClick = {
+                                    viewModel.setCustomDailyBackground(bgName)
+                                    showCheatDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(bgName, color = if (bgName == ui.dailyBackground) Color(0xFFB388FF) else Color.White, fontSize = 18.sp)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showCheatDialog = false }) { Text("Close") }
+                }
+            )
+        }
+
         if (flashAlpha.value > 0f) {
             Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha.value)))
         }
 
-        // Reward Dialog
         if (showRewardDialog && currentReward != null) {
             AlertDialog(
                 onDismissRequest = { showRewardDialog = false },

@@ -15,7 +15,8 @@ data class ShopUiState(
     val totalWishes: Int = 0,
     val pityCounter: Int = 0,
     val dailyBackground: String = "",
-    val isDailyOwned: Boolean = false
+    val isDailyOwned: Boolean = false,
+    val availableBackgrounds: List<String> = emptyList()
 )
 
 sealed class PullResult {
@@ -27,7 +28,7 @@ class ShopViewModel(context: Context) : ViewModel() {
     private val coinManager = CoinManager.getInstance(context)
     private val gachaManager = GachaManager.getInstance(context)
 
-    private val _uiState = MutableStateFlow(ShopUiState())
+    private val _uiState = MutableStateFlow(ShopUiState(availableBackgrounds = gachaManager.availableBackgrounds))
     val uiState = _uiState.asStateFlow()
 
     private val _pullEvents = MutableSharedFlow<PullResult>()
@@ -45,10 +46,15 @@ class ShopViewModel(context: Context) : ViewModel() {
                     totalWishes = wishes,
                     pityCounter = pity,
                     dailyBackground = daily,
-                    isDailyOwned = unlocked.contains(daily)
+                    isDailyOwned = unlocked.contains(daily),
+                    availableBackgrounds = gachaManager.availableBackgrounds
                 )
             }.collect { _uiState.value = it }
         }
+    }
+
+    fun setCustomDailyBackground(bgName: String) {
+        gachaManager.setDailyBackground(bgName)
     }
 
     fun pullWish(times: Int = 1) {
@@ -56,7 +62,6 @@ class ShopViewModel(context: Context) : ViewModel() {
             if (_uiState.value.totalWishes < times) return@launch
 
             for (i in 0 until times) {
-                coinManager.removeCoins(0) // wishes handle own logic, but we deduct 1 wish manually via manager
                 coinManager.addWishes(-1)
 
                 gachaManager.incrementPity()
@@ -69,9 +74,8 @@ class ShopViewModel(context: Context) : ViewModel() {
                     gachaManager.unlockBackground(bg)
                     gachaManager.resetPity()
                     _pullEvents.emit(PullResult.Background(bg))
-                    break // Stop multi-pulls if we hit the background
+                    break
                 } else {
-                    // Generate random bright color
                     val r = Random.nextInt(100, 256)
                     val g = Random.nextInt(100, 256)
                     val b = Random.nextInt(100, 256)
