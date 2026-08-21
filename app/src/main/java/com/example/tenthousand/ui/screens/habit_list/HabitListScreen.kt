@@ -9,6 +9,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,7 +62,6 @@ fun HabitListScreen(
 
     val totalSecondsAllHabits = state.habits.sumOf { it.totalSeconds }
 
-    // Combine defaults with unlocked gacha colors
     val allColors = remember(state.unlockedColors) {
         defaultHabitColors.map { it.toArgb() } + state.unlockedColors.toList()
     }
@@ -161,10 +163,12 @@ fun HabitListScreen(
         HabitEditorDialog(
             initialName = "",
             initialColor = allColors.firstOrNull() ?: defaultHabitColors[0].toArgb(),
+            initialBackground = null,
             availableColors = allColors,
+            unlockedBackgrounds = state.unlockedBackgrounds,
             title = "New Habit",
-            onConfirm = { name, color ->
-                viewModel.createHabit(name, color)
+            onConfirm = { name, color, bg ->
+                viewModel.createHabit(name, color, bg)
                 showAddDialog = false
             },
             onCancel = { showAddDialog = false }
@@ -175,10 +179,12 @@ fun HabitListScreen(
         HabitEditorDialog(
             initialName = selectedHabit!!.name,
             initialColor = selectedHabit!!.color,
+            initialBackground = selectedHabit!!.background,
             availableColors = allColors,
+            unlockedBackgrounds = state.unlockedBackgrounds,
             title = "Edit Habit",
-            onConfirm = { name, color ->
-                viewModel.updateHabit(selectedHabit!!.id, name, color)
+            onConfirm = { name, color, bg ->
+                viewModel.updateHabit(selectedHabit!!.id, name, color, bg)
                 showOptionsDialog = false
             },
             onCancel = { showOptionsDialog = false },
@@ -237,11 +243,19 @@ fun HabitRow(habit: HabitEntity, onClick: () -> Unit, onLongClick: () -> Unit) {
 
 @Composable
 fun HabitEditorDialog(
-    initialName: String, initialColor: Int, availableColors: List<Int>, title: String,
-    onConfirm: (String, Int) -> Unit, onCancel: () -> Unit, onDelete: (() -> Unit)? = null
+    initialName: String,
+    initialColor: Int,
+    initialBackground: String?,
+    availableColors: List<Int>,
+    unlockedBackgrounds: Set<String>,
+    title: String,
+    onConfirm: (String, Int, String?) -> Unit,
+    onCancel: () -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
     var name by remember { mutableStateOf(initialName) }
     var selectedColor by remember { mutableIntStateOf(initialColor) }
+    var selectedBackground by remember { mutableStateOf(initialBackground) }
 
     AlertDialog(
         onDismissRequest = onCancel,
@@ -249,11 +263,18 @@ fun HabitEditorDialog(
         text = {
             Column {
                 OutlinedTextField(value = name, onValueChange = { name = it }, placeholder = { Text("e.g. Reading") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Theme Color (${availableColors.size} Unlocked)", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                // The new highly responsive Color Grid UX
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 40.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.heightIn(max = 140.dp).fillMaxWidth()
+                ) {
                     items(availableColors) { colorInt ->
                         val color = Color(colorInt)
                         val isSelected = colorInt == selectedColor
@@ -265,9 +286,35 @@ fun HabitEditorDialog(
                         )
                     }
                 }
+
+                if (unlockedBackgrounds.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Magical Background", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val bgOptions = listOf(null) + unlockedBackgrounds.toList()
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(bgOptions) { bg ->
+                            val isSelected = bg == selectedBackground
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable { selectedBackground = bg }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = bg ?: "None",
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
-        confirmButton = { Button(onClick = { if (name.isNotBlank()) onConfirm(name.trim(), selectedColor) }) { Text("Save") } },
+        confirmButton = { Button(onClick = { if (name.isNotBlank()) onConfirm(name.trim(), selectedColor, selectedBackground) }) { Text("Save") } },
         dismissButton = {
             Row {
                 if (onDelete != null) { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }; Spacer(modifier = Modifier.width(8.dp)) }

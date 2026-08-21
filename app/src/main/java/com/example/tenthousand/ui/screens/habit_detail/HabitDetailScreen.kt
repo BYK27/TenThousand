@@ -8,6 +8,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -37,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tenthousand.data.local.dao.HabitDao
 import com.example.tenthousand.ui.screens.habit_list.formatSleekTimer
 import com.example.tenthousand.ui.screens.habit_list.formatSleekTotal
+import com.example.tenthousand.ui.screens.shop.MagicalBackground
 import kotlinx.coroutines.flow.SharedFlow
 import java.text.NumberFormat
 import java.util.Locale
@@ -66,6 +68,14 @@ fun HabitDetailScreen(
     val formattedWishes = NumberFormat.getNumberInstance(Locale.US).format(ui.totalWishes)
 
     Box(modifier = Modifier.fillMaxSize()) {
+
+        // Inject the Gacha Background
+        ui.habit?.background?.let { bgName ->
+            MagicalBackground(bgName)
+            // Overlay so the white/bright elements don't hide the UI
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -77,13 +87,14 @@ fun HabitDetailScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = if (ui.habit?.background != null) Color.White else LocalContentColor.current)
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = habit?.name ?: "",
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    color = if (ui.habit?.background != null) Color.White else Color.Unspecified
                 )
                 Spacer(modifier = Modifier.weight(1f))
 
@@ -134,7 +145,7 @@ fun HabitDetailScreen(
             Text(
                 text = "Focus Time: ${formatSleekTotal(ui.habit?.totalSeconds ?: 0L)}",
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                color = if (ui.habit?.background != null) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
             )
             Spacer(Modifier.height(8.dp))
 
@@ -186,7 +197,6 @@ fun WishConversionDialog(
         },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // Emoji-less Exchange Rate Display
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Exchange Rate: 95,000",
@@ -365,7 +375,6 @@ fun BrainrotCoinOverlay(coinEvents: SharedFlow<Int>) {
     LaunchedEffect(Unit) {
         coinEvents.collect { amount ->
             val isJackpot = amount >= 100
-            // Emoji-less aggressive text prefixes
             val prefix = if (isJackpot) listOf("JACKPOT ", "MEGA ", "CRAZY ", "INSANE ").random() else ""
 
             popups.add(
@@ -422,6 +431,8 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
     val context = LocalContext.current
     var showDialog by remember { mutableStateOf(false) }
 
+    val textColor = if (ui.habit?.background != null) Color.White else MaterialTheme.colorScheme.onBackground
+
     LaunchedEffect(ui.timerFinishedEvent) {
         if (ui.timerFinishedEvent) {
             playAlarmAndVibrate(context)
@@ -439,7 +450,7 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
         modifier = Modifier.fillMaxSize()
     ) {
         Spacer(Modifier.height(32.dp))
-        Text("Timer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Timer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textColor)
 
         Box(
             contentAlignment = Alignment.Center,
@@ -452,7 +463,7 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
                 strokeWidth = 24.dp,
                 strokeCap = StrokeCap.Round,
                 color = themeColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (ui.habit?.background != null) 0.5f else 1f),
                 modifier = Modifier
                     .size(280.dp)
                     .clickable(
@@ -464,7 +475,8 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
             Text(
                 text = formatSleekTimer(ui.timerRemaining),
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
-                fontWeight = FontWeight.Light
+                fontWeight = FontWeight.Light,
+                color = textColor
             )
         }
 
@@ -483,7 +495,8 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
                 text = if (ui.timerRunning) "STOP" else "START",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
+                letterSpacing = 2.sp,
+                color = Color.White
             )
         }
     }
@@ -525,13 +538,15 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
 
 @Composable
 fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColor: Color) {
+    val textColor = if (ui.habit?.background != null) Color.White else MaterialTheme.colorScheme.onBackground
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxSize()
     ) {
         Spacer(Modifier.height(32.dp))
-        Text("Stopwatch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Stopwatch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textColor)
 
         Box(
             contentAlignment = Alignment.Center,
@@ -543,13 +558,14 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 progress = { 1f },
                 strokeWidth = 24.dp,
                 color = themeColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (ui.habit?.background != null) 0.5f else 1f),
                 modifier = Modifier.size(280.dp)
             )
             Text(
                 text = formatSleekTimer(ui.stopwatchElapsed),
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
-                fontWeight = FontWeight.Light
+                fontWeight = FontWeight.Light,
+                color = textColor
             )
         }
 
@@ -572,7 +588,8 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                     text = if (ui.stopwatchRunning) "PAUSE" else "START",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp
+                    letterSpacing = 2.sp,
+                    color = Color.White
                 )
             }
 
@@ -582,6 +599,7 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 OutlinedButton(
                     onClick = { viewModel.stopAndCreditStopwatch() },
                     shape = RoundedCornerShape(32.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
                     modifier = Modifier.fillMaxWidth(0.7f).height(56.dp)
                 ) {
                     Text("SAVE & RESET", fontWeight = FontWeight.Bold)

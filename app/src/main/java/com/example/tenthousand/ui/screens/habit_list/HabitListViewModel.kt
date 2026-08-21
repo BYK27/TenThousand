@@ -15,7 +15,8 @@ data class HabitListUiState(
     val isLoading: Boolean = true,
     val totalCoins: Int = 0,
     val totalWishes: Int = 0,
-    val unlockedColors: Set<Int> = emptySet()
+    val unlockedColors: Set<Int> = emptySet(),
+    val unlockedBackgrounds: Set<String> = emptySet()
 )
 
 class HabitListViewModel(
@@ -62,11 +63,16 @@ class HabitListViewModel(
                 _uiState.update { it.copy(unlockedColors = colors) }
             }
         }
+        viewModelScope.launch {
+            gachaManager.unlockedBackgrounds.collect { bgs ->
+                _uiState.update { it.copy(unlockedBackgrounds = bgs) }
+            }
+        }
     }
 
-    fun createHabit(name: String, color: Int) {
+    fun createHabit(name: String, color: Int, background: String?) {
         viewModelScope.launch {
-            dao.insert(HabitEntity(name = name, totalSeconds = 0, color = color))
+            dao.insert(HabitEntity(name = name, totalSeconds = 0, color = color, background = background))
         }
     }
 
@@ -74,11 +80,11 @@ class HabitListViewModel(
         viewModelScope.launch { dao.delete(habit) }
     }
 
-    fun updateHabit(habitId: Long, newName: String, newColor: Int) {
+    fun updateHabit(habitId: Long, newName: String, newColor: Int, newBackground: String?) {
         viewModelScope.launch {
             val habit = dao.observeByIdOnce(habitId)
             if (habit != null) {
-                dao.update(habit.copy(name = newName, color = newColor))
+                dao.update(habit.copy(name = newName, color = newColor, background = newBackground))
             }
         }
     }
