@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Skupljeni prikaz notifikacije.
+
+    Napomene o RemoteViews ograničenjima:
+    - dozvoljen je samo uzak skup View klasa; obična `View` NIJE među njima,
+      pa scrim nije zaseban view nego android:background na sadržaju;
+    - custom atributi i teme se ne primenjuju, sve mora biti eksplicitno;
+    - id-jevi ovde moraju da se poklope sa onima u FocusNotifications.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="56dp">
+
+    <!-- Boja navike se postavlja kao background, snapshot shadera kao src.
+         Kad snapshot-a nema, ostaje čista boja. -->
+    <ImageView
+        android:id="@+id/notif_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:id="@+id/notif_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <TextView
+            android:id="@+id/notif_habit"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <Chronometer
+            android:id="@+id/notif_chrono"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/notif_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:textColor="#B3FFFFFF"
+            android:textSize="20sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

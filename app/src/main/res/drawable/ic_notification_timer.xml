@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Small icon notifikacije. Sistem ga crta kao siluetu - sve što nije
+    providno postaje bela maska, pa boje ovde nemaju efekta. Zato je ikonica
+    namerno jednobojna i bez detalja koji bi se u 24dp maski slepili.
+    Launcher ikonice (ic_launcher_foreground) se ne mogu koristiti za ovo -
+    imaju punu pozadinu, pa bi u status baru bio beli kvadrat.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+
+    <!-- kazaljke -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.5,7L11,7v6l5.2,3.2 0.8,-1.3 -4.5,-2.7z" />
+
+    <!-- prsten sata -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,4c-4.42,0 -8,3.58 -8,8s3.58,8 8,8 8,-3.58 8,-8 -3.58,-8 -8,-8zM12,18.5c-3.59,0 -6.5,-2.91 -6.5,-6.5S8.41,5.5 12,5.5s6.5,2.91 6.5,6.5 -2.91,6.5 -6.5,6.5z" />
+
+    <!-- dugme na vrhu -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,1h6v2h-6z" />
+</vector>

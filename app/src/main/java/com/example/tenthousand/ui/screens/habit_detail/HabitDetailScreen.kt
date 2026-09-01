@@ -1,12 +1,5 @@
 package com.example.tenthousand.ui.screens.habit_detail
 
-import android.content.Context
-import android.media.RingtoneManager
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -24,7 +17,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -46,7 +38,13 @@ import kotlin.math.sin
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+/**
+ * @RequiresApi(TIRAMISU) je uklonjen - minSdk je sada 33.
+ *
+ * playAlarmAndVibrate() je obrisan: zvuk i vibraciju na kraju tajmera sada
+ * pravi notifikacioni kanal "focus_complete", koji radi i kad je app zatvoren.
+ * Da je ostalo i jedno i drugo, dobio bi dupli zvuk kad si u app-u.
+ */
 @Composable
 fun HabitDetailScreen(
     habitId: Long,
@@ -87,7 +85,11 @@ fun HabitDetailScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = if (ui.habit?.background != null) Color.White else LocalContentColor.current)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = if (ui.habit?.background != null) Color.White else LocalContentColor.current
+                    )
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
@@ -145,7 +147,8 @@ fun HabitDetailScreen(
             Text(
                 text = "Focus Time: ${formatSleekTotal(ui.habit?.totalSeconds ?: 0L)}",
                 style = MaterialTheme.typography.headlineSmall,
-                color = if (ui.habit?.background != null) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                color = if (ui.habit?.background != null) Color.White.copy(alpha = 0.8f)
+                else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
             )
             Spacer(Modifier.height(8.dp))
 
@@ -203,13 +206,23 @@ fun WishConversionDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                     )
-                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(16.dp).padding(horizontal = 4.dp))
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(16.dp).padding(horizontal = 4.dp)
+                    )
                     Text(
                         text = "= 1",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                     )
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFFB388FF), modifier = Modifier.size(16.dp).padding(start = 4.dp))
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFFB388FF),
+                        modifier = Modifier.size(16.dp).padding(start = 4.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -222,7 +235,12 @@ fun WishConversionDialog(
                         color = Color(0xFFB388FF)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFFB388FF), modifier = Modifier.size(40.dp))
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFFB388FF),
+                        modifier = Modifier.size(40.dp)
+                    )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
@@ -232,7 +250,12 @@ fun WishConversionDialog(
                         color = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.Star, contentDescription = null, tint = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = if (cost > 0) Color.Red else MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -304,8 +327,8 @@ fun FocusVFX(isRunning: Boolean, themeColor: Color) {
                             vy = (sin(angle) * speed).toFloat(),
                             life = 0f,
                             maxLife = Random.nextFloat() * 1.0f + 0.2f,
-                            size = if(isCrazy) Random.nextFloat() * 20f + 10f else Random.nextFloat() * 8f + 2f,
-                            color = if(isCrazy) Color(Random.nextLong(0xFFFFFFFF)) else themeColor
+                            size = if (isCrazy) Random.nextFloat() * 20f + 10f else Random.nextFloat() * 8f + 2f,
+                            color = if (isCrazy) Color(Random.nextLong(0xFFFFFFFF)) else themeColor
                         )
                     )
                 }
@@ -440,17 +463,9 @@ private fun BrainrotPopup(popup: BrainrotText, onFinished: () -> Unit) {
 
 @Composable
 fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColor: Color) {
-    val context = LocalContext.current
     var showDialog by remember { mutableStateOf(false) }
 
     val textColor = if (ui.habit?.background != null) Color.White else MaterialTheme.colorScheme.onBackground
-
-    LaunchedEffect(ui.timerFinishedEvent) {
-        if (ui.timerFinishedEvent) {
-            playAlarmAndVibrate(context)
-            viewModel.consumeTimerFinishedEvent()
-        }
-    }
 
     val progress = if (ui.timerTotal > 0) {
         ui.timerRemaining.toFloat() / ui.timerTotal.toFloat()
@@ -475,7 +490,9 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
                 strokeWidth = 24.dp,
                 strokeCap = StrokeCap.Round,
                 color = themeColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (ui.habit?.background != null) 0.5f else 1f),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (ui.habit?.background != null) 0.5f else 1f
+                ),
                 modifier = Modifier
                     .size(280.dp)
                     .clickable(
@@ -492,24 +509,47 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
             )
         }
 
-        Button(
-            onClick = {
-                if (ui.timerRunning) viewModel.pauseTimer()
-                else viewModel.startTimer()
-            },
-            shape = RoundedCornerShape(32.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (ui.timerRunning) MaterialTheme.colorScheme.error else themeColor
-            ),
-            modifier = Modifier.fillMaxWidth(0.7f).height(64.dp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = if (ui.timerRunning) "STOP" else "START",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp,
-                color = Color.White
-            )
+            Button(
+                onClick = { viewModel.toggleTimer() },
+                shape = RoundedCornerShape(32.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (ui.timerRunning) MaterialTheme.colorScheme.error else themeColor
+                ),
+                modifier = Modifier.fillMaxWidth(0.7f).height(64.dp)
+            ) {
+                Text(
+                    text = when {
+                        ui.timerRunning -> "PAUSE"
+                        ui.timerActive -> "RESUME"
+                        else -> "START"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Novo: prekid tajmera na pola sada kreditira ono što je odrađeno.
+            // Ranije je pauza brisala stanje i tih 8 od 25 minuta se gubilo.
+            if (ui.timerActive && !ui.timerRunning && ui.timerElapsed > 0) {
+                OutlinedButton(
+                    onClick = { viewModel.stopAndSave() },
+                    shape = RoundedCornerShape(32.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
+                    modifier = Modifier.fillMaxWidth(0.7f).height(56.dp)
+                ) {
+                    Text("SAVE & RESET", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Spacer(modifier = Modifier.height(56.dp))
+            }
         }
     }
 
@@ -570,7 +610,9 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 progress = { 1f },
                 strokeWidth = 24.dp,
                 color = themeColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (ui.habit?.background != null) 0.5f else 1f),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = if (ui.habit?.background != null) 0.5f else 1f
+                ),
                 modifier = Modifier.size(280.dp)
             )
             Text(
@@ -586,10 +628,7 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
             modifier = Modifier.fillMaxWidth()
         ) {
             Button(
-                onClick = {
-                    if (ui.stopwatchRunning) viewModel.pauseStopwatch()
-                    else viewModel.startStopwatch()
-                },
+                onClick = { viewModel.toggleStopwatch() },
                 shape = RoundedCornerShape(32.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (ui.stopwatchRunning) MaterialTheme.colorScheme.error else themeColor
@@ -597,7 +636,11 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 modifier = Modifier.fillMaxWidth(0.7f).height(64.dp)
             ) {
                 Text(
-                    text = if (ui.stopwatchRunning) "PAUSE" else "START",
+                    text = when {
+                        ui.stopwatchRunning -> "PAUSE"
+                        ui.stopwatchActive -> "RESUME"
+                        else -> "START"
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp,
@@ -607,9 +650,9 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (ui.stopwatchElapsed > 0 && !ui.stopwatchRunning) {
+            if (ui.stopwatchActive && !ui.stopwatchRunning && ui.stopwatchElapsed > 0) {
                 OutlinedButton(
-                    onClick = { viewModel.stopAndCreditStopwatch() },
+                    onClick = { viewModel.stopAndSave() },
                     shape = RoundedCornerShape(32.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
                     modifier = Modifier.fillMaxWidth(0.7f).height(56.dp)
@@ -620,30 +663,5 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 Spacer(modifier = Modifier.height(56.dp))
             }
         }
-    }
-}
-
-fun playAlarmAndVibrate(context: Context) {
-    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-        vibratorManager.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    }
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
-    } else {
-        @Suppress("DEPRECATION")
-        vibrator.vibrate(500)
-    }
-
-    try {
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val ringtone = RingtoneManager.getRingtone(context, alarmUri)
-        ringtone.play()
-    } catch (e: Exception) {
-        e.printStackTrace()
     }
 }

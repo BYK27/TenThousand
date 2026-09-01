@@ -2,35 +2,62 @@ package com.example.tenthousand.ui.screens.habit_detail
 
 import HabitEntity
 import android.content.Context
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
+import com.example.tenthousand.service.FocusService
 import com.example.tenthousand.util.CoinManager
-import com.example.tenthousand.util.TimerStateManager
-import kotlinx.coroutines.Job
+import com.example.tenthousand.util.focus.FocusMode
+import com.example.tenthousand.util.focus.FocusSession
+import com.example.tenthousand.util.focus.FocusSessionStore
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 data class HabitDetailUiState(
     val habit: HabitEntity? = null,
+    /** Postoji li aktivna (makar i pauzirana) TIMER sesija baš za ovu naviku. */
+    val timerActive: Boolean = false,
     val timerRunning: Boolean = false,
     val timerTotal: Long = 25 * 60L,
     val timerRemaining: Long = 25 * 60L,
-    val timerFinishedEvent: Boolean = false,
+    val timerElapsed: Long = 0L,
+    val stopwatchActive: Boolean = false,
     val stopwatchRunning: Boolean = false,
     val stopwatchElapsed: Long = 0L,
     val totalCoins: Int = 0,
     val totalWishes: Int = 0
 )
 
+/**
+ * ViewModel više ne meri vreme - samo ga prikazuje.
+ *
+ * Izvor istine je FocusService preko FocusSessionStore-a. Ovde ostaje:
+ * - preslikavanje sesije u UI stanje,
+ * - slanje komandi servisu,
+ * - brainrot coin drop-ovi, koji po dogovoru rade SAMO dok je app u prvom
+ *   planu. Zato je petlja umotana u ProcessLifecycleOwner.repeatOnLifecycle -
+ *   kad app ode u pozadinu, korutina se otkaže i drop-ovi prestanu; kad se
+ *   vrati, ponovo krene. Sat u međuvremenu neometano teče u servisu, jer se
+ *   proteklo vreme računa iz zidnog sata, a ne broji otkucajima.
+ */
 class HabitDetailViewModel(
     private val habitId: Long,
     private val dao: HabitDao,
     context: Context
 ) : ViewModel() {
+
+    private val appContext = context.applicationContext
 
     private val _uiState = MutableStateFlow(HabitDetailUiState())
     val uiState: StateFlow<HabitDetailUiState> = _uiState.asStateFlow()
@@ -38,23 +65,25 @@ class HabitDetailViewModel(
     private val _coinEvents = MutableSharedFlow<Int>(extraBufferCapacity = 100)
     val coinEvents = _coinEvents.asSharedFlow()
 
-    private val timerStateManager = TimerStateManager(context)
+    private val coinManager = CoinManager.getInstance(appContext)
+    private val store = FocusSessionStore.getInstance(appContext)
 
-    // Use the Singleton instance here
-    private val coinManager = CoinManager.getInstance(context)
-
-    private var timerJob: Job? = null
-    private var timerTargetTimeMillis: Long = 0L
-    private var stopwatchJob: Job? = null
-    private var stopwatchStartRealTimeMillis: Long = 0L
     private var coinAccumulatorMillis: Long = 0L
-    private var lastTickTimeMillis: Long = 0L
 
     init {
+        _uiState.update {
+            val last = store.lastTimerSeconds()
+            it.copy(timerTotal = last, timerRemaining = last)
+        }
         observeHabit()
         observeCurrencies()
-        restoreState()
+        observeSession()
+        runForegroundTicker()
     }
+
+    // ---------------------------------------------------------------------
+    // Observers
+    // ---------------------------------------------------------------------
 
     private fun observeHabit() {
         viewModelScope.launch {
@@ -77,76 +106,91 @@ class HabitDetailViewModel(
         }
     }
 
-    fun convertCoinsToWishes(wishesToBuy: Int) {
-        val cost = wishesToBuy * 95000
-        if (cost > 0 && _uiState.value.totalCoins >= cost) {
-            coinManager.removeCoins(cost)
-            coinManager.addWishes(wishesToBuy)
-        }
-    }
-
-    private fun creditSeconds(seconds: Long) {
-        viewModelScope.launch { dao.addSeconds(habitId, seconds) }
-    }
-
-    private fun awardCoins(amount: Int) {
-        if (amount > 0) coinManager.addCoins(amount)
-    }
-
-    private fun restoreState() {
-        val activeTimer = timerStateManager.getActiveTimer(habitId)
-        if (activeTimer != null) {
-            val (targetTime, totalSec) = activeTimer
-            val now = System.currentTimeMillis()
-            val diffSeconds = (targetTime - now) / 1000L
-
-            _uiState.update { it.copy(timerTotal = totalSec) }
-
-            if (diffSeconds <= 0) {
-                creditSeconds(totalSec)
-                awardCoins((totalSec * 3).toInt())
-
-                _uiState.update { it.copy(
-                    timerRemaining = totalSec,
-                    timerRunning = false,
-                    timerFinishedEvent = true
-                )}
-                timerStateManager.clearActiveTimer()
-            } else {
-                timerTargetTimeMillis = targetTime
-                _uiState.update { it.copy(timerRemaining = diffSeconds, timerRunning = true) }
-                resumeTimerJob()
+    private fun observeSession() {
+        viewModelScope.launch {
+            store.session.collect { session ->
+                render(session, System.currentTimeMillis())
             }
         }
+    }
 
-        val activeSw = timerStateManager.getActiveStopwatch(habitId)
-        if (activeSw != null) {
-            stopwatchStartRealTimeMillis = activeSw
-            _uiState.update { it.copy(stopwatchRunning = true) }
-            resumeStopwatchJob()
+    /**
+     * Jedina periodična petlja u app-u. Radi na 100 ms - isti raster koji je
+     * stari kod koristio za coin drop-ove (delay(16) sa akumulatorom od 100 ms
+     * je davao isti efekat uz 6x više budjenja). Prikaz se osvežava u istoj
+     * petlji; MutableStateFlow ne emituje kad je nova vrednost jednaka staroj,
+     * pa rekompozicija ide tek kad se sekunda promeni.
+     */
+    private fun runForegroundTicker() {
+        viewModelScope.launch {
+            ProcessLifecycleOwner.get().lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var lastTick = System.currentTimeMillis()
+                coinAccumulatorMillis = 0L
+
+                while (isActive) {
+                    val now = System.currentTimeMillis()
+                    val delta = now - lastTick
+                    lastTick = now
+
+                    val session = mySession()
+                    if (session != null && session.isRunning) {
+                        processBrainrotDrops(delta)
+                    } else {
+                        coinAccumulatorMillis = 0L
+                    }
+
+                    render(session, now)
+                    delay(TICK_MILLIS)
+                }
+            }
         }
     }
 
-    fun setTimerTotal(minutes: Long) {
-        pauseTimer()
-        val totalSeconds = minutes * 60L
-        _uiState.update { it.copy(timerTotal = totalSeconds, timerRemaining = totalSeconds) }
-    }
+    private fun mySession(): FocusSession? =
+        store.session.value?.takeIf { it.habitId == habitId }
 
-    fun startTimer() {
-        if (_uiState.value.timerRunning) return
-        val remaining = _uiState.value.timerRemaining
-        if (remaining <= 0) return
+    private fun render(session: FocusSession?, now: Long) {
+        val mine = session?.takeIf { it.habitId == habitId }
 
-        timerTargetTimeMillis = System.currentTimeMillis() + (remaining * 1000L)
-        _uiState.update { it.copy(timerRunning = true) }
-        timerStateManager.saveActiveTimer(habitId, timerTargetTimeMillis, _uiState.value.timerTotal)
-        resumeTimerJob()
+        _uiState.update { state ->
+            when {
+                mine == null -> state.copy(
+                    timerActive = false,
+                    timerRunning = false,
+                    timerRemaining = state.timerTotal,
+                    timerElapsed = 0L,
+                    stopwatchActive = false,
+                    stopwatchRunning = false,
+                    stopwatchElapsed = 0L
+                )
+
+                mine.mode == FocusMode.TIMER -> state.copy(
+                    timerActive = true,
+                    timerRunning = mine.isRunning,
+                    timerTotal = mine.totalSeconds,
+                    timerRemaining = mine.remainingSecondsAt(now),
+                    timerElapsed = mine.elapsedSecondsAt(now),
+                    stopwatchActive = false,
+                    stopwatchRunning = false,
+                    stopwatchElapsed = 0L
+                )
+
+                else -> state.copy(
+                    timerActive = false,
+                    timerRunning = false,
+                    timerRemaining = state.timerTotal,
+                    timerElapsed = 0L,
+                    stopwatchActive = true,
+                    stopwatchRunning = mine.isRunning,
+                    stopwatchElapsed = mine.elapsedSecondsAt(now)
+                )
+            }
+        }
     }
 
     private fun processBrainrotDrops(delta: Long) {
         coinAccumulatorMillis += delta
-        if (coinAccumulatorMillis >= 100L) {
+        while (coinAccumulatorMillis >= 100L) {
             coinAccumulatorMillis -= 100L
             val chance = Random.nextFloat()
             val gain = when {
@@ -155,90 +199,70 @@ class HabitDetailViewModel(
                 chance > 0.40f -> Random.nextInt(2, 10)
                 else -> 1
             }
-            awardCoins(gain)
+            coinManager.addCoins(gain)
             _coinEvents.tryEmit(gain)
         }
     }
 
-    private fun resumeTimerJob() {
-        timerJob?.cancel()
-        lastTickTimeMillis = System.currentTimeMillis()
-        coinAccumulatorMillis = 0L
+    // ---------------------------------------------------------------------
+    // Komande ka servisu
+    // ---------------------------------------------------------------------
 
-        timerJob = viewModelScope.launch {
-            while (isActive && _uiState.value.timerRunning) {
-                val now = System.currentTimeMillis()
-                val delta = now - lastTickTimeMillis
-                lastTickTimeMillis = now
+    fun setTimerTotal(minutes: Long) {
+        val seconds = (minutes * 60L).coerceAtLeast(60L)
+        // Ako sesija za ovu naviku već postoji, promena trajanja je zatvara i
+        // upisuje ono što je do sada odrađeno - inače bi novo trajanje bilo
+        // primenjeno na već potrošeno vreme.
+        if (_uiState.value.timerActive) {
+            FocusService.stopAndSave(appContext)
+        }
+        store.setLastTimerSeconds(seconds)
+        _uiState.update { it.copy(timerTotal = seconds, timerRemaining = seconds, timerElapsed = 0L) }
+    }
 
-                processBrainrotDrops(delta)
+    /** START / PAUSE / RESUME za tajmer, u zavisnosti od stanja sesije. */
+    fun toggleTimer() {
+        val mine = mySession()
+        when {
+            mine != null && mine.mode == FocusMode.TIMER && mine.isRunning ->
+                FocusService.pause(appContext)
 
-                val diffSeconds = (timerTargetTimeMillis - now) / 1000L
+            mine != null && mine.mode == FocusMode.TIMER ->
+                FocusService.resume(appContext)
 
-                if (diffSeconds <= 0) {
-                    _uiState.update { it.copy(timerRemaining = 0, timerRunning = false, timerFinishedEvent = true) }
-                    creditSeconds(_uiState.value.timerTotal)
-                    _uiState.update { it.copy(timerRemaining = it.timerTotal) }
-                    timerStateManager.clearActiveTimer()
-                    break
-                } else {
-                    _uiState.update { it.copy(timerRemaining = diffSeconds) }
-                }
-                delay(16)
-            }
+            else ->
+                FocusService.startTimer(appContext, habitId, _uiState.value.timerTotal)
         }
     }
 
-    fun consumeTimerFinishedEvent() {
-        _uiState.update { it.copy(timerFinishedEvent = false) }
-    }
+    fun toggleStopwatch() {
+        val mine = mySession()
+        when {
+            mine != null && mine.mode == FocusMode.STOPWATCH && mine.isRunning ->
+                FocusService.pause(appContext)
 
-    fun pauseTimer() {
-        _uiState.update { it.copy(timerRunning = false) }
-        timerJob?.cancel()
-        timerStateManager.clearActiveTimer()
-    }
+            mine != null && mine.mode == FocusMode.STOPWATCH ->
+                FocusService.resume(appContext)
 
-    fun startStopwatch() {
-        if (_uiState.value.stopwatchRunning) return
-        stopwatchStartRealTimeMillis = System.currentTimeMillis() - (_uiState.value.stopwatchElapsed * 1000L)
-        _uiState.update { it.copy(stopwatchRunning = true) }
-        timerStateManager.saveActiveStopwatch(habitId, stopwatchStartRealTimeMillis)
-        resumeStopwatchJob()
-    }
-
-    private fun resumeStopwatchJob() {
-        stopwatchJob?.cancel()
-        lastTickTimeMillis = System.currentTimeMillis()
-        coinAccumulatorMillis = 0L
-
-        stopwatchJob = viewModelScope.launch {
-            while (isActive && _uiState.value.stopwatchRunning) {
-                val now = System.currentTimeMillis()
-                val delta = now - lastTickTimeMillis
-                lastTickTimeMillis = now
-
-                processBrainrotDrops(delta)
-
-                val elapsedSeconds = (now - stopwatchStartRealTimeMillis) / 1000L
-                _uiState.update { it.copy(stopwatchElapsed = elapsedSeconds) }
-                delay(16)
-            }
+            else ->
+                FocusService.startStopwatch(appContext, habitId)
         }
     }
 
-    fun pauseStopwatch() {
-        _uiState.update { it.copy(stopwatchRunning = false) }
-        stopwatchJob?.cancel()
-        timerStateManager.clearActiveStopwatch()
+    /** Upisuje protekle sekunde u bazu i gasi sesiju - i za tajmer i za štopericu. */
+    fun stopAndSave() {
+        FocusService.stopAndSave(appContext)
     }
 
-    fun stopAndCreditStopwatch() {
-        pauseStopwatch()
-        val elapsed = _uiState.value.stopwatchElapsed
-        if (elapsed > 0) {
-            creditSeconds(elapsed)
-            _uiState.update { it.copy(stopwatchElapsed = 0L) }
+    fun convertCoinsToWishes(wishesToBuy: Int) {
+        val cost = wishesToBuy * 95000
+        if (cost > 0 && _uiState.value.totalCoins >= cost) {
+            coinManager.removeCoins(cost)
+            coinManager.addWishes(wishesToBuy)
         }
+    }
+
+    companion object {
+        private const val TICK_MILLIS = 100L
     }
 }
