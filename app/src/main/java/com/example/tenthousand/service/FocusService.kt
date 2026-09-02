@@ -10,14 +10,23 @@ import android.graphics.Bitmap
 import android.os.IBinder
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.tenthousand.TenThousandApp
+import com.example.tenthousand.util.CoinManager
+import com.example.tenthousand.util.focus.CoinDrop
+import com.example.tenthousand.util.focus.FocusCoinEngine
 import com.example.tenthousand.util.focus.FocusMode
 import com.example.tenthousand.util.focus.FocusSession
 import com.example.tenthousand.util.focus.FocusSessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,20 +38,23 @@ import kotlinx.coroutines.withContext
  * ovaj servis izvor istine, sesija preživljava zatvaranje ekrana, a notifikacija
  * je ta koja drži proces živim.
  *
- * Servis NAMERNO nema tick petlju:
- * - prikaz vremena u notifikaciji radi Chronometer, sam za sebe;
+ * Prikaz vremena i kraj tajmera i dalje ne traže petlju:
+ * - vreme u notifikaciji crta Chronometer, sam za sebe;
  * - kraj tajmera javlja AlarmManager egzaktnim alarmom, koji budi CPU i u doze
- *   režimu (coroutine delay to ne radi - kad se ekran ugasi i CPU zaspi, delay
- *   okine tek kad se uređaj sledeći put probudi, pa bi ti tajmer kasnio);
+ *   režimu (coroutine delay to ne radi);
  * - proteklo vreme se uvek RAČUNA iz zidnog sata, ne akumulira otkucajima.
  *
- * Jedina periodična petlja u app-u ostaje ona u HabitDetailViewModel-u, koja
- * radi samo dok je app u prvom planu i služi za brainrot coin drop-ove.
+ * Jedina petlja u servisu je ona za coin-ove ([restartCoinLoop]). I ona je samo
+ * okidač, ne merač: koliko je coin-ova zarađeno određuje protekло vreme, pa
+ * frekvencija petlje utiče isključivo na to koliko se često novac pripisuje,
+ * nikad na to koliko ga ima. Zbog toga sme da radi na 100 ms u prvom planu i
+ * na 30 s u pozadini, a da rezultat bude identičan.
  */
 class FocusService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var store: FocusSessionStore
+    private lateinit var coinManager: CoinManager
 
     private val app: TenThousandApp get() = application as TenThousandApp
     private val alarmManager: AlarmManager by lazy { getSystemService(AlarmManager::class.java) }
@@ -51,12 +63,35 @@ class FocusService : Service() {
     private var backgroundBitmap: Bitmap? = null
     private var backgroundBitmapName: String? = null
 
+    private var coinJob: Job? = null
+
+    /**
+     * Radna kopija [FocusSession.coinCreditedMillis]. Drži se u memoriji da se
+     * SharedPreferences ne bi upisivao deset puta u sekundi; na disk se sinhroniše
+     * na svakih [COIN_PERSIST_INTERVAL_MILLIS] i pri svakoj promeni stanja.
+     */
+    private var coinCreditedMillis = 0L
+    private var lastPersistedCoinCredit = 0L
+
+    /**
+     * Prelazi app-a između prvog plana i pozadine menjaju samo tempo isplate,
+     * pa petlju treba odmah prebaciti u drugi ritam - inače bi povratak u app
+     * čekao do 30 s na prvi popup.
+     */
+    private val processObserver = LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_STOP) {
+            restartCoinLoop()
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         store = FocusSessionStore.getInstance(this)
+        coinManager = CoinManager.getInstance(this)
         FocusNotifications.ensureChannels(this)
+        ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,6 +128,8 @@ class FocusService : Service() {
     }
 
     override fun onDestroy() {
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
+        coinJob?.cancel()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -109,7 +146,7 @@ class FocusService : Service() {
 
         // Pravilo "jedna sesija u celom app-u": sve što je do sada teklo se
         // kreditira i zatvara pre nego što nova sesija krene. Zato start
-        // tajmera gasi štopericu i obrnuto, i to bez gubitka minuta.
+        // tajmera gasi štopericu i obrnuto, i to bez gubitka minuta i coin-ova.
         creditAndClear(store.session.value)
 
         serviceScope.launch {
@@ -127,12 +164,15 @@ class FocusService : Service() {
                 mode = mode,
                 totalSeconds = if (mode == FocusMode.TIMER) totalSeconds else 0L,
                 accumulatedMillis = 0L,
-                runningSinceMillis = System.currentTimeMillis()
+                runningSinceMillis = System.currentTimeMillis(),
+                coinCreditedMillis = 0L
             )
 
+            adoptCoinProgress(session)
             store.set(session)
             scheduleFinishAlarm(session)
             refreshNotification(session)
+            restartCoinLoop()
         }
     }
 
@@ -140,10 +180,15 @@ class FocusService : Service() {
         val current = store.session.value ?: return stopEverything()
         if (!current.isRunning) return
 
-        val paused = current.pausedAt(System.currentTimeMillis())
+        // Isplata pre pauze: sve do trenutka pauze pripada korisniku.
+        creditCoins(emitDrops = false)
+
+        val paused = current.pausedAt(System.currentTimeMillis()).withCoinProgress()
         store.set(paused)
+        lastPersistedCoinCredit = coinCreditedMillis
         cancelFinishAlarm()
         refreshNotification(paused)
+        restartCoinLoop()
     }
 
     private fun resumeSession() {
@@ -159,10 +204,11 @@ class FocusService : Service() {
             return
         }
 
-        val resumed = current.resumedAt(System.currentTimeMillis())
+        val resumed = current.resumedAt(System.currentTimeMillis()).withCoinProgress()
         store.set(resumed)
         scheduleFinishAlarm(resumed)
         refreshNotification(resumed)
+        restartCoinLoop()
     }
 
     private fun stopAndSave() {
@@ -178,6 +224,11 @@ class FocusService : Service() {
         }
 
         cancelFinishAlarm()
+        coinJob?.cancel()
+        // Poslednja isplata coin-ova pre gašenja sesije - pokriva i slučaj kad
+        // je alarm okinuo posle dužeg doze perioda.
+        creditCoins(emitDrops = false)
+
         store.set(null)
         // Tajmer koji je istekao kreditira PUNO trajanje, ne izmereno proteklo -
         // izbegava da zaokruživanje milisekundi otme sekundu na kraju.
@@ -200,6 +251,8 @@ class FocusService : Service() {
             return
         }
 
+        adoptCoinProgress(current)
+
         // Ako je tajmer istekao dok je proces bio mrtav, zatvori ga odmah.
         if (current.mode == FocusMode.TIMER &&
             current.isRunning &&
@@ -211,6 +264,93 @@ class FocusService : Service() {
 
         scheduleFinishAlarm(current)
         refreshNotification(current)
+        restartCoinLoop()
+    }
+
+    // ---------------------------------------------------------------------
+    // Coin-ovi
+    // ---------------------------------------------------------------------
+
+    private fun adoptCoinProgress(session: FocusSession) {
+        coinCreditedMillis = session.coinCreditedMillis
+        lastPersistedCoinCredit = coinCreditedMillis
+    }
+
+    private fun FocusSession.withCoinProgress(): FocusSession =
+    // this@FocusService je obavezan: unutar extension funkcije prosto
+    // `coinCreditedMillis` bi se vezalo za polje samog FocusSession-a
+        // (receiver ima prednost), pa bi copy() bio no-op.
+        copy(coinCreditedMillis = this@FocusService.coinCreditedMillis)
+
+    /**
+     * Petlja je samo okidač isplate. Tempo se razlikuje jer se razlikuje svrha:
+     *
+     * - u prvom planu se kuca na 100 ms, tako da svaki slot ide kao zaseban
+     *   popup i animacija izgleda isto kao ranije;
+     * - u pozadini se kuca na 30 s, jer nema ko da gleda popup-e; tada se
+     *   nakupljeni slotovi isplate odjednom.
+     *
+     * Kad se ekran ugasi i CPU ode u dubok san, ni ova petlja se ne budi - i to
+     * je u redu. Sledeći put kad se probudi (ili kad korisnik pritisne STOP,
+     * ili kad okine alarm za kraj tajmera) nadoknadi sve propušteno, jer se
+     * iznos računa iz proteklog vremena, a ne iz broja otkucaja.
+     */
+    private fun restartCoinLoop() {
+        coinJob?.cancel()
+
+        val session = store.session.value
+        if (session == null || !session.isRunning) return
+
+        coinJob = serviceScope.launch {
+            while (isActive) {
+                val foreground = isAppInForeground()
+                creditCoins(emitDrops = foreground)
+                delay(if (foreground) FocusCoinEngine.SLOT_MILLIS else BACKGROUND_TICK_MILLIS)
+            }
+        }
+    }
+
+    private fun isAppInForeground(): Boolean =
+        ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+
+    /**
+     * Isplaćuje sve slotove koji su prošli od prethodne isplate.
+     *
+     * Novac se UVEK upisuje u CoinManager; [emitDrops] utiče samo na to da li
+     * se šalje događaj za animaciju. Zato coin-ovi u pozadini ne mogu da se
+     * izgube čak ni ako niko ne sluša flow.
+     */
+    private fun creditCoins(emitDrops: Boolean) {
+        val session = store.session.value ?: return
+        if (!session.isRunning) return
+
+        val elapsed = session.elapsedMillisAt(System.currentTimeMillis())
+        val award = FocusCoinEngine.award(coinCreditedMillis, elapsed)
+        if (award.slots == 0) return
+
+        coinCreditedMillis = award.creditedMillis
+
+        if (award.coins > 0) {
+            coinManager.addCoins(award.coins)
+            if (emitDrops) {
+                store.emitCoinDrop(
+                    CoinDrop(
+                        habitId = session.habitId,
+                        amount = award.coins,
+                        isCatchUp = award.slots > 1
+                    )
+                )
+            }
+        }
+
+        // Perzistencija je namerno proređena: commit() na svakih 100 ms bi bio
+        // desetak upisa na disk u sekundi. U najgorem slučaju (proces ubijen
+        // između dva upisa) korisnik dobije duplo za do 5 s fokusa - greška ide
+        // u njegovu korist i reda je nekoliko stotina coin-ova.
+        if (coinCreditedMillis - lastPersistedCoinCredit >= COIN_PERSIST_INTERVAL_MILLIS) {
+            store.set(session.withCoinProgress())
+            lastPersistedCoinCredit = coinCreditedMillis
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -220,8 +360,13 @@ class FocusService : Service() {
     private fun creditAndClear(session: FocusSession?) {
         if (session == null) return
         cancelFinishAlarm()
+        coinJob?.cancel()
+        creditCoins(emitDrops = false)
+
         val seconds = session.elapsedSecondsAt(System.currentTimeMillis())
         store.set(null)
+        coinCreditedMillis = 0L
+        lastPersistedCoinCredit = 0L
         creditSeconds(session.habitId, seconds)
     }
 
@@ -310,6 +455,7 @@ class FocusService : Service() {
         }
 
     private fun stopEverything() {
+        coinJob?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -330,6 +476,12 @@ class FocusService : Service() {
         const val EXTRA_TOTAL_SECONDS = "totalSeconds"
 
         private const val REQ_FINISH_ALARM = 900
+
+        /** Tempo isplate dok je app u pozadini - dovoljno retko da ne troši bateriju. */
+        private const val BACKGROUND_TICK_MILLIS = 30_000L
+
+        /** Na koliko fokusiranog vremena se coin napredak sinhroniše na disk. */
+        private const val COIN_PERSIST_INTERVAL_MILLIS = 5_000L
 
         fun startTimer(context: Context, habitId: Long, totalSeconds: Long) {
             send(context, Intent(context, FocusService::class.java).apply {

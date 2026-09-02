@@ -14,7 +14,7 @@ enum class FocusMode { TIMER, STOPWATCH }
  * za tajmer nisu ni postojali (pauza je brisala stanje). Ovde je stanje jedno:
  * koliko je milisekundi VEĆ akumulirano dok je bilo pauzirano
  * ([accumulatedMillis]) i, ako trenutno teče, od kog zidnog vremena teče
- * ([runningSinceMillis]). Iz ta dva polja se izvodi i protekло i preostalo
+ * ([runningSinceMillis]). Iz ta dva polja se izvodi i proteklo i preostalo
  * vreme, za oba moda, istom formulom.
  *
  * Sve je vezano za zidni sat (System.currentTimeMillis), pa vreme teče i kad
@@ -30,7 +30,16 @@ data class FocusSession(
     /** Puno trajanje za TIMER, u sekundama. Za STOPWATCH je 0. */
     val totalSeconds: Long,
     val accumulatedMillis: Long,
-    val runningSinceMillis: Long?
+    val runningSinceMillis: Long?,
+    /**
+     * Do kog trenutka protekle sesije su coin-ovi već isplaćeni. Uvek je
+     * poravnato na granicu slota od 100 ms (vidi [FocusCoinEngine]).
+     *
+     * Ovo polje je razlog što coin-ovi ne mogu ni da se izgube ni da se
+     * dupliraju: servis pri svakom buđenju isplati tačno razliku između
+     * proteklog vremena i ove vrednosti, bez obzira koliko je dugo spavao.
+     */
+    val coinCreditedMillis: Long = 0L
 ) {
     val isRunning: Boolean get() = runningSinceMillis != null
 
@@ -63,6 +72,21 @@ data class FocusSession(
     fun resumedAt(nowMillis: Long): FocusSession =
         copy(runningSinceMillis = nowMillis)
 }
+
+/**
+ * Jedan coin drop koji je servis upravo isplatio. UI ga koristi samo za
+ * animaciju - novac je već upisan u CoinManager pre nego što je ovo emitovano.
+ */
+data class CoinDrop(
+    val habitId: Long,
+    val amount: Int,
+    /**
+     * True kad je ovo nadoknada za period koji je app proveo u pozadini, pa se
+     * više slotova sabralo u jedan iznos. UI to prikazuje kao jedan veliki
+     * popup umesto stotinu malih.
+     */
+    val isCatchUp: Boolean
+)
 
 /**
  * Isti format kao formatSleekTimer u UI sloju, ali sa satima kad pređe 60 min -

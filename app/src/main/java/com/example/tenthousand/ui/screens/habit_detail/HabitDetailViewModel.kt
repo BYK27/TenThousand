@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.tenthousand.data.local.dao.HabitDao
 import com.example.tenthousand.service.FocusService
 import com.example.tenthousand.util.CoinManager
+import com.example.tenthousand.util.focus.FocusCoinEngine
 import com.example.tenthousand.util.focus.FocusMode
 import com.example.tenthousand.util.focus.FocusSession
 import com.example.tenthousand.util.focus.FocusSessionStore
@@ -22,7 +23,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 data class HabitDetailUiState(
     val habit: HabitEntity? = null,
@@ -36,20 +36,21 @@ data class HabitDetailUiState(
     val stopwatchRunning: Boolean = false,
     val stopwatchElapsed: Long = 0L,
     val totalCoins: Int = 0,
-    val totalWishes: Int = 0
+    val totalWishes: Int = 0,
+    /** Trenutni množilac zarade, za prikaz iznad dugmeta. 1.0 kad nema sesije. */
+    val coinMultiplier: Float = 1f
 )
 
 /**
- * ViewModel više ne meri vreme - samo ga prikazuje.
+ * ViewModel ne meri vreme i, od ove izmene, VIŠE NE DELI COIN-OVE.
  *
- * Izvor istine je FocusService preko FocusSessionStore-a. Ovde ostaje:
- * - preslikavanje sesije u UI stanje,
- * - slanje komandi servisu,
- * - brainrot coin drop-ovi, koji po dogovoru rade SAMO dok je app u prvom
- *   planu. Zato je petlja umotana u ProcessLifecycleOwner.repeatOnLifecycle -
- *   kad app ode u pozadinu, korutina se otkaže i drop-ovi prestanu; kad se
- *   vrati, ponovo krene. Sat u međuvremenu neometano teče u servisu, jer se
- *   proteklo vreme računa iz zidnog sata, a ne broji otkucajima.
+ * Ranije su drop-ovi nastajali ovde, u petlji vezanoj za ProcessLifecycleOwner,
+ * pa su prestajali čim app ode u pozadinu - upravo taj bug se ispravlja. Sada
+ * ih isplaćuje FocusService iz proteklog vremena sesije, a ViewModel samo
+ * preslikava događaje iz FocusSessionStore.coinDrops u animaciju.
+ *
+ * Petlja koja je ostala služi isključivo osvežavanju prikaza i zato i dalje sme
+ * da bude vezana za prvi plan - kad se ekran ne vidi, nema šta da se crta.
  */
 class HabitDetailViewModel(
     private val habitId: Long,
@@ -68,8 +69,6 @@ class HabitDetailViewModel(
     private val coinManager = CoinManager.getInstance(appContext)
     private val store = FocusSessionStore.getInstance(appContext)
 
-    private var coinAccumulatorMillis: Long = 0L
-
     init {
         _uiState.update {
             val last = store.lastTimerSeconds()
@@ -78,7 +77,8 @@ class HabitDetailViewModel(
         observeHabit()
         observeCurrencies()
         observeSession()
-        runForegroundTicker()
+        observeCoinDrops()
+        runDisplayTicker()
     }
 
     // ---------------------------------------------------------------------
@@ -115,31 +115,32 @@ class HabitDetailViewModel(
     }
 
     /**
-     * Jedina periodična petlja u app-u. Radi na 100 ms - isti raster koji je
-     * stari kod koristio za coin drop-ove (delay(16) sa akumulatorom od 100 ms
-     * je davao isti efekat uz 6x više budjenja). Prikaz se osvežava u istoj
-     * petlji; MutableStateFlow ne emituje kad je nova vrednost jednaka staroj,
-     * pa rekompozicija ide tek kad se sekunda promeni.
+     * Filter po habitId postoji jer je sesija globalna: ako tajmer teče za
+     * naviku A, a korisnik gleda ekran navike B, popup-i ne treba da lete po
+     * pogrešnom ekranu. Novac je svejedno pripisan - on je globalan.
      */
-    private fun runForegroundTicker() {
+    private fun observeCoinDrops() {
+        viewModelScope.launch {
+            store.coinDrops.collect { drop ->
+                if (drop.habitId == habitId) {
+                    _coinEvents.tryEmit(drop.amount)
+                }
+            }
+        }
+    }
+
+    /**
+     * Petlja samo za prikaz. Vezana je za prvi plan jer u pozadini nema šta da
+     * osvežava; sat i coin-ovi u međuvremenu rade u servisu.
+     *
+     * MutableStateFlow ne emituje kad je nova vrednost jednaka staroj, pa se
+     * rekompozicija dešava tek kad se promeni sekunda, a ne deset puta u sekundi.
+     */
+    private fun runDisplayTicker() {
         viewModelScope.launch {
             ProcessLifecycleOwner.get().lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                var lastTick = System.currentTimeMillis()
-                coinAccumulatorMillis = 0L
-
                 while (isActive) {
-                    val now = System.currentTimeMillis()
-                    val delta = now - lastTick
-                    lastTick = now
-
-                    val session = mySession()
-                    if (session != null && session.isRunning) {
-                        processBrainrotDrops(delta)
-                    } else {
-                        coinAccumulatorMillis = 0L
-                    }
-
-                    render(session, now)
+                    render(store.session.value, System.currentTimeMillis())
                     delay(TICK_MILLIS)
                 }
             }
@@ -161,7 +162,8 @@ class HabitDetailViewModel(
                     timerElapsed = 0L,
                     stopwatchActive = false,
                     stopwatchRunning = false,
-                    stopwatchElapsed = 0L
+                    stopwatchElapsed = 0L,
+                    coinMultiplier = 1f
                 )
 
                 mine.mode == FocusMode.TIMER -> state.copy(
@@ -172,7 +174,8 @@ class HabitDetailViewModel(
                     timerElapsed = mine.elapsedSecondsAt(now),
                     stopwatchActive = false,
                     stopwatchRunning = false,
-                    stopwatchElapsed = 0L
+                    stopwatchElapsed = 0L,
+                    coinMultiplier = FocusCoinEngine.multiplierAt(mine.elapsedMillisAt(now))
                 )
 
                 else -> state.copy(
@@ -182,25 +185,10 @@ class HabitDetailViewModel(
                     timerElapsed = 0L,
                     stopwatchActive = true,
                     stopwatchRunning = mine.isRunning,
-                    stopwatchElapsed = mine.elapsedSecondsAt(now)
+                    stopwatchElapsed = mine.elapsedSecondsAt(now),
+                    coinMultiplier = FocusCoinEngine.multiplierAt(mine.elapsedMillisAt(now))
                 )
             }
-        }
-    }
-
-    private fun processBrainrotDrops(delta: Long) {
-        coinAccumulatorMillis += delta
-        while (coinAccumulatorMillis >= 100L) {
-            coinAccumulatorMillis -= 100L
-            val chance = Random.nextFloat()
-            val gain = when {
-                chance > 0.98f -> Random.nextInt(100, 1000)
-                chance > 0.85f -> Random.nextInt(10, 50)
-                chance > 0.40f -> Random.nextInt(2, 10)
-                else -> 1
-            }
-            coinManager.addCoins(gain)
-            _coinEvents.tryEmit(gain)
         }
     }
 

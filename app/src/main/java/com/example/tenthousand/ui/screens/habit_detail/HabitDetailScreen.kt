@@ -501,12 +501,15 @@ fun TimerPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, themeColo
                     ) { if (!ui.timerRunning) showDialog = true }
             )
 
-            Text(
-                text = formatSleekTimer(ui.timerRemaining),
-                style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
-                fontWeight = FontWeight.Light,
-                color = textColor
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = formatSleekTimer(ui.timerRemaining),
+                    style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
+                    fontWeight = FontWeight.Light,
+                    color = textColor
+                )
+                CoinMultiplierChip(multiplier = ui.coinMultiplier, visible = ui.timerActive)
+            }
         }
 
         Column(
@@ -615,12 +618,15 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 ),
                 modifier = Modifier.size(280.dp)
             )
-            Text(
-                text = formatSleekTimer(ui.stopwatchElapsed),
-                style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
-                fontWeight = FontWeight.Light,
-                color = textColor
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = formatSleekTimer(ui.stopwatchElapsed),
+                    style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
+                    fontWeight = FontWeight.Light,
+                    color = textColor
+                )
+                CoinMultiplierChip(multiplier = ui.coinMultiplier, visible = ui.stopwatchActive)
+            }
         }
 
         Column(
@@ -663,5 +669,40 @@ fun StopwatchPage(ui: HabitDetailUiState, viewModel: HabitDetailViewModel, theme
                 Spacer(modifier = Modifier.height(56.dp))
             }
         }
+    }
+}
+
+/**
+ * Prikazuje trenutni mnozilac zarade. Bez ovoga bi eskalacija bila nevidljiva -
+ * korisnik bi dobijao vise coin-ova, ali ne bi imao nacin da vidi zasto.
+ * Ispod 1.05x se ne crta, da ne bi stajalo "1.0x" prvih pet minuta sesije.
+ */
+@Composable
+private fun CoinMultiplierChip(multiplier: Float, visible: Boolean) {
+    if (!visible || multiplier < 1.05f) return
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = 4.dp)
+            .background(
+                color = Color(0xFFFFD700).copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Star,
+            contentDescription = null,
+            tint = Color(0xFFFFD700),
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = String.format(Locale.US, "%.2fx", multiplier),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFFFD700)
+        )
     }
 }

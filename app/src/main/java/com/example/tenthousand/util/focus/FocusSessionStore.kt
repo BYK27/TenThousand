@@ -2,18 +2,23 @@ package com.example.tenthousand.util.focus
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Zamenjuje TimerStateManager.
  *
- * Uloge su namerno razdvojene: SAMO FocusService sme da poziva [set] - on je
- * izvor istine. ViewModel-i čitaju [session] i šalju komande servisu preko
- * Intent-a. Time izbegavam bound service i binder-e: servis i ViewModel su u
- * istom procesu, pa je jedan StateFlow dovoljan kanal nazad ka UI-ju, a
- * SharedPreferences pokriva slučaj kad proces bude ubijen.
+ * Uloge su namerno razdvojene: SAMO FocusService sme da poziva [set] i
+ * [emitCoinDrop] - on je izvor istine. ViewModel-i čitaju [session] i
+ * [coinDrops], a komande šalju servisu preko Intent-a. Time izbegavam bound
+ * service i binder-e: servis i ViewModel su u istom procesu, pa su dva flow-a
+ * dovoljan kanal nazad ka UI-ju, a SharedPreferences pokriva slučaj kad proces
+ * bude ubijen.
  */
 class FocusSessionStore private constructor(context: Context) {
 
@@ -23,9 +28,26 @@ class FocusSessionStore private constructor(context: Context) {
     private val _session = MutableStateFlow(load())
     val session: StateFlow<FocusSession?> = _session.asStateFlow()
 
+    /**
+     * Kanal za vizuelne coin popup-e. replay = 0 jer stari drop ne treba da
+     * iskoči kad se ekran ponovo otvori; DROP_OLDEST jer je animacija potrošna -
+     * bolje preskočiti popup nego blokirati servis koji isplaćuje novac.
+     * Sam iznos coin-ova je već upisan u CoinManager i ne zavisi od ovog flow-a.
+     */
+    private val _coinDrops = MutableSharedFlow<CoinDrop>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val coinDrops: SharedFlow<CoinDrop> = _coinDrops.asSharedFlow()
+
     fun set(session: FocusSession?) {
         persist(session)
         _session.value = session
+    }
+
+    fun emitCoinDrop(drop: CoinDrop) {
+        _coinDrops.tryEmit(drop)
     }
 
     /** Poslednje izabrano trajanje tajmera, da dijalog ne počinje uvek od 25 min. */
@@ -46,6 +68,7 @@ class FocusSessionStore private constructor(context: Context) {
                 .remove(KEY_TOTAL_SECONDS)
                 .remove(KEY_ACCUMULATED)
                 .remove(KEY_RUNNING_SINCE)
+                .remove(KEY_COIN_CREDITED)
         } else {
             editor.putLong(KEY_HABIT_ID, session.habitId)
                 .putString(KEY_HABIT_NAME, session.habitName)
@@ -55,6 +78,7 @@ class FocusSessionStore private constructor(context: Context) {
                 .putLong(KEY_TOTAL_SECONDS, session.totalSeconds)
                 .putLong(KEY_ACCUMULATED, session.accumulatedMillis)
                 .putLong(KEY_RUNNING_SINCE, session.runningSinceMillis ?: -1L)
+                .putLong(KEY_COIN_CREDITED, session.coinCreditedMillis)
         }
         // commit(), ne apply(): ovo stanje mora da bude na disku i ako sistem
         // ubije proces odmah posle poziva (npr. korisnik pokrene tajmer pa
@@ -77,7 +101,8 @@ class FocusSessionStore private constructor(context: Context) {
             mode = mode,
             totalSeconds = prefs.getLong(KEY_TOTAL_SECONDS, 0L),
             accumulatedMillis = prefs.getLong(KEY_ACCUMULATED, 0L),
-            runningSinceMillis = if (runningSince > 0L) runningSince else null
+            runningSinceMillis = if (runningSince > 0L) runningSince else null,
+            coinCreditedMillis = prefs.getLong(KEY_COIN_CREDITED, 0L)
         )
     }
 
@@ -90,6 +115,7 @@ class FocusSessionStore private constructor(context: Context) {
         private const val KEY_TOTAL_SECONDS = "TOTAL_SECONDS"
         private const val KEY_ACCUMULATED = "ACCUMULATED_MILLIS"
         private const val KEY_RUNNING_SINCE = "RUNNING_SINCE"
+        private const val KEY_COIN_CREDITED = "COIN_CREDITED_MILLIS"
         private const val KEY_LAST_TIMER_SECONDS = "LAST_TIMER_SECONDS"
 
         @Volatile
